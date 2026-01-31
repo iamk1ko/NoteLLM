@@ -1,0 +1,78 @@
+name: pai-school
+
+services:
+  mysql:
+    container_name: pai_school_mysql
+    image: mysql:8
+    restart: no
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./volumes/mysql/data:/var/lib/mysql
+      - ./volumes/mysql/conf:/etc/mysql/conf.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --explicit_defaults_for_timestamp=true --lower_case_table_names=1
+    healthcheck:
+      start_period: 5s
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redislabs/redisearch
+    container_name: pai_school_redis
+    restart: no
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis/data:/data
+    healthcheck:
+      start_period: 5s
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    command: redis-server --bind 0.0.0.0 --port 6379 --appendonly yes
+
+  rabbitmq:
+    image: rabbitmq:3.8-management
+    container_name: pai_school_rabbitmq
+    restart: no
+    # 节点名 rabbit@rabbitserver，不然会去容器ID
+    hostname: rabbitserver
+    environment:
+      # 默认虚拟机名
+      RABBITMQ_DEFAULT_VHOST: admin_vhost
+      # 用户名
+      RABBITMQ_DEFAULT_USER: admin
+      # 密码
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ./volumes/rabbitmq/data:/var/lib/rabbitmq
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: pai_school_minio
+    restart: no
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - ./volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+networks:
+  default:
+    name: pai_school_network

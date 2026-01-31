@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
 
-class Users(Base):
+class User(Base):
     """用户表（users）。
 
     说明：

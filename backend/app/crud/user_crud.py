@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, func
 from sqlalchemy.orm import Session
 
-from app.models.users import Users
+from app.models.users import User
 
 
 class UserCRUD:
@@ -17,5 +17,71 @@ class UserCRUD:
     """
 
     @staticmethod
-    def list_users(db: Session) -> Sequence[Users]:
-        return db.scalars(select(Users).order_by(Users.id)).all()
+    def list_users(db: Session) -> Sequence[User]:
+        """查询所有用户（不分页，适合小数据量）。"""
+
+        return db.scalars(select(User).order_by(User.id)).all()
+
+    @staticmethod
+    def list_users_page(
+        db: Session,
+        page: int,
+        size: int,
+        keyword: str | None = None,
+    ) -> tuple[Sequence[User], int]:
+        """分页查询用户，并返回总数量。
+
+        说明：
+        - keyword 为空则查询全部
+        - keyword 模糊匹配 username/name/phone/email
+        """
+
+        stmt = select(User)
+        count_stmt = select(func.count(User.id))
+        if keyword:
+            like = f"%{keyword}%"
+            condition = or_(
+                User.username.like(like),
+                User.name.like(like),
+                User.phone.like(like),
+                User.email.like(like),
+            )
+            stmt = stmt.where(condition)
+            count_stmt = count_stmt.where(condition)
+
+        total = db.scalar(count_stmt) or 0
+        items = db.scalars(
+            stmt.order_by(User.id).offset((page - 1) * size).limit(size)
+        ).all()
+        return items, total
+
+    @staticmethod
+    def get_user_by_id(db: Session, user_id: int) -> User | None:
+        """根据 ID 获取用户。"""
+
+        return db.get(User, user_id)
+
+    @staticmethod
+    def create_user(db: Session, user: User) -> User:
+        """创建用户。"""
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    @staticmethod
+    def update_user(db: Session, user: User) -> User:
+        """更新用户。"""
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    @staticmethod
+    def delete_user(db: Session, user: User) -> None:
+        """删除用户。"""
+
+        db.delete(user)
+        db.commit()

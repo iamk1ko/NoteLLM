@@ -7,12 +7,6 @@ from fastapi.responses import JSONResponse
 from app.schemas.response import ApiResponse
 
 
-def _trace_id_from_request(request: Request) -> str | None:
-    """从请求上下文中取出 trace_id。"""
-
-    return getattr(request.state, "trace_id", None)
-
-
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -23,12 +17,10 @@ async def validation_exception_handler(
     - message 展示首个错误信息，便于学习和排查
     """
 
-    trace_id = _trace_id_from_request(request)
     message = (
         exc.errors()[0].get("msg", "参数校验失败") if exc.errors() else "参数校验失败"
     )
     payload = ApiResponse.fail(code=1001, message=message)
-    payload.trace_id = trace_id
     return JSONResponse(status_code=422, content=payload.model_dump())
 
 
@@ -40,9 +32,7 @@ async def http_exception_handler(request: Request, exc) -> JSONResponse:
     - message 使用异常 detail
     """
 
-    trace_id = _trace_id_from_request(request)
     payload = ApiResponse.fail(code=exc.status_code, message=str(exc.detail))
-    payload.trace_id = trace_id
     return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
 
 
@@ -54,7 +44,5 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     - message 不暴露内部错误细节
     """
 
-    trace_id = _trace_id_from_request(request)
     payload = ApiResponse.fail(code=1000, message="服务器内部错误")
-    payload.trace_id = trace_id
     return JSONResponse(status_code=500, content=payload.model_dump())

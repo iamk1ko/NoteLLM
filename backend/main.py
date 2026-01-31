@@ -33,6 +33,11 @@ async def lifespan(app: FastAPI):
     logger.info("应用启动，开始初始化数据库表")
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
+    print("\n" + "=" * 60)
+    print("📚 API文档: http://localhost:8000/docs")
+    print("📖 ReDoc文档: http://localhost:8000/redoc")
+    print("=" * 60 + "\n")
+
     yield
     logger.info("应用关闭，释放数据库连接")
     engine.dispose()
@@ -81,7 +86,6 @@ async def say_hello(name: str):
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore
 app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
 app.add_exception_handler(Exception, unhandled_exception_handler)  # type: ignore
-
 
 if __name__ == "__main__":
     import uvicorn

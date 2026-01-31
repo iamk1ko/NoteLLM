@@ -15,14 +15,12 @@ class ApiResponse(BaseModel, Generic[T]):
     - code: 业务状态码，0 表示成功，其它表示失败
     - message: 友好的提示信息
     - data: 实际返回的数据，成功时携带
-    - trace_id: 链路追踪ID，用于日志定位
     - timestamp: 响应时间，便于排查与审计
     """
 
     code: int = Field(0, description="业务状态码，0 表示成功")
     message: str = Field("OK", description="提示信息")
     data: T | None = Field(None, description="响应数据")
-    trace_id: str | None = Field(None, description="链路追踪ID")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="响应时间")
 
     @classmethod

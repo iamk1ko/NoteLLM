@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.services.users_service import UserService
-from app.models.users import User
 from app.schemas.users import (
     UserOut,
     UserCreate,
@@ -21,7 +20,7 @@ router = APIRouter(tags=["users"])
 
 
 @router.get("/users", response_model=ApiResponse[Sequence[UserOut]])
-def list_users(db: Session = Depends(get_db)) -> Sequence[User]:
+def list_users(db: Session = Depends(get_db)) -> ApiResponse[list[UserOut]]:
     """获取所有用户列表（不分页）。
 
     说明：
@@ -35,11 +34,11 @@ def list_users(db: Session = Depends(get_db)) -> Sequence[User]:
 
 @router.get("/users/page", response_model=ApiResponse[UserListResponse])
 def list_users_page(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    keyword: str | None = Query(None, description="模糊搜索关键词"),
-    db: Session = Depends(get_db),
-) -> UserListResponse:
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        keyword: str | None = Query(None, description="模糊搜索关键词"),
+        db: Session = Depends(get_db),
+) -> ApiResponse[UserListResponse]:
     """分页查询用户列表。
 
     说明：
@@ -60,7 +59,7 @@ def list_users_page(
 
 
 @router.get("/users/{user_id}", response_model=ApiResponse[UserOut])
-def get_user(user_id: int, db: Session = Depends(get_db)) -> User:
+def get_user(user_id: int, db: Session = Depends(get_db)) -> ApiResponse[UserOut]:
     """获取用户详情。"""
 
     user = UserService(db).get_user(user_id)
@@ -70,7 +69,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)) -> User:
 
 
 @router.post("/users", response_model=ApiResponse[UserOut])
-def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
+def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> ApiResponse[UserOut]:
     """创建用户。"""
 
     user = UserService(db).create_user(payload)
@@ -79,10 +78,10 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
 
 @router.put("/users/{user_id}", response_model=ApiResponse[UserOut])
 def update_user(
-    user_id: int,
-    payload: UserUpdate,
-    db: Session = Depends(get_db),
-) -> User:
+        user_id: int,
+        payload: UserUpdate,
+        db: Session = Depends(get_db),
+) -> ApiResponse[UserOut]:
     """更新用户。"""
 
     user = UserService(db).update_user(user_id, payload)
@@ -93,7 +92,7 @@ def update_user(
 
 @router.delete("/users/{user_id}", response_model=ApiResponse[SimpleResponse])
 def delete_user(
-    user_id: int, db: Session = Depends(get_db)
+        user_id: int, db: Session = Depends(get_db)
 ) -> ApiResponse[SimpleResponse]:
     """删除用户。"""
 

@@ -15,11 +15,12 @@ from app.schemas.users import (
     UserListResponse,
     SimpleResponse,
 )
+from app.schemas.response import ApiResponse
 
 router = APIRouter(tags=["users"])
 
 
-@router.get("/users", response_model=Sequence[UserOut])
+@router.get("/users", response_model=ApiResponse[Sequence[UserOut]])
 def list_users(db: Session = Depends(get_db)) -> Sequence[User]:
     """获取所有用户列表（不分页）。
 
@@ -28,10 +29,11 @@ def list_users(db: Session = Depends(get_db)) -> Sequence[User]:
     - 如果数据量较大，请使用分页接口 /users/page
     """
 
-    return UserService(db).list_users()
+    items = UserService(db).list_users()
+    return ApiResponse.ok([UserOut.model_validate(item) for item in items])
 
 
-@router.get("/users/page", response_model=UserListResponse)
+@router.get("/users/page", response_model=ApiResponse[UserListResponse])
 def list_users_page(
     page: int = Query(1, ge=1, description="页码，从 1 开始"),
     size: int = Query(10, ge=1, le=100, description="每页数量"),
@@ -48,32 +50,34 @@ def list_users_page(
     items, total = UserService(db).list_users_page(
         page=page, size=size, keyword=keyword
     )
-    return UserListResponse(
+    payload = UserListResponse(
         items=[UserOut.model_validate(item) for item in items],
         total=total,
         page=page,
         size=size,
     )
+    return ApiResponse.ok(payload)
 
 
-@router.get("/users/{user_id}", response_model=UserOut)
+@router.get("/users/{user_id}", response_model=ApiResponse[UserOut])
 def get_user(user_id: int, db: Session = Depends(get_db)) -> User:
     """获取用户详情。"""
 
     user = UserService(db).get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    return user
+    return ApiResponse.ok(UserOut.model_validate(user))
 
 
-@router.post("/users", response_model=UserOut)
+@router.post("/users", response_model=ApiResponse[UserOut])
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     """创建用户。"""
 
-    return UserService(db).create_user(payload)
+    user = UserService(db).create_user(payload)
+    return ApiResponse.ok(UserOut.model_validate(user))
 
 
-@router.put("/users/{user_id}", response_model=UserOut)
+@router.put("/users/{user_id}", response_model=ApiResponse[UserOut])
 def update_user(
     user_id: int,
     payload: UserUpdate,
@@ -84,14 +88,16 @@ def update_user(
     user = UserService(db).update_user(user_id, payload)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    return user
+    return ApiResponse.ok(UserOut.model_validate(user))
 
 
-@router.delete("/users/{user_id}", response_model=SimpleResponse)
-def delete_user(user_id: int, db: Session = Depends(get_db)) -> SimpleResponse:
+@router.delete("/users/{user_id}", response_model=ApiResponse[SimpleResponse])
+def delete_user(
+    user_id: int, db: Session = Depends(get_db)
+) -> ApiResponse[SimpleResponse]:
     """删除用户。"""
 
     ok = UserService(db).delete_user(user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="用户不存在")
-    return SimpleResponse(success=True)
+    return ApiResponse.ok(SimpleResponse(success=True))

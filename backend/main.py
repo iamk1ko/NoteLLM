@@ -1,13 +1,21 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.db import Base, engine
-from app.models import users  # noqa: F401
+from app import models  # noqa: F401
 from app.core.logging import get_logger, setup_logging
 from app.core.settings import get_settings
+from app.core.middleware import TraceIdMiddleware
+from app.core.exceptions import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.schemas.response import ApiResponse
 
 settings = get_settings()
 setup_logging(settings.LOG_LEVEL)
@@ -39,6 +47,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# TraceId 中间件
+app.add_middleware(TraceIdMiddleware)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -54,12 +65,22 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
+    """根路径示例。"""
+
+    return ApiResponse.ok({"message": "Hello World"})
 
 
 @app.get("/hello/{name}")
 async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
+    """简单问候示例。"""
+
+    return ApiResponse.ok({"message": f"Hello {name}"})
+
+
+# 异常处理器（统一响应格式）
+app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+app.add_exception_handler(Exception, unhandled_exception_handler)  # type: ignore
 
 
 if __name__ == "__main__":

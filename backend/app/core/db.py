@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Generator
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.settings import get_settings
@@ -19,20 +20,21 @@ class Base(DeclarativeBase):
 def _create_engine():
     """创建数据库引擎。
 
-    SQLite 说明：
-    - check_same_thread=False 允许在不同线程复用连接（FastAPI 常见配置）
+    说明：
+    - 统一使用 SQLAlchemy 的同步引擎，适合学习项目与简单业务
+    - 实际生产可按需切换异步引擎或引入连接池监控
     """
 
     settings = get_settings()
-    database_url = settings.DATABASE_URL
-    logger.info("初始化数据库引擎：{}", database_url)
-
-    connect_args = {}
-    if database_url.startswith("sqlite"):
-        connect_args = {"check_same_thread": False}
+    database_url = settings.database_url()
+    safe_url = make_url(database_url).render_as_string(hide_password=True)
+    logger.info("初始化数据库引擎：{}", safe_url)
 
     return create_engine(
-        database_url, echo=False, future=True, connect_args=connect_args
+        database_url,
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
     )
 
 

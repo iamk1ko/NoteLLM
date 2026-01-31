@@ -18,13 +18,19 @@ class Settings(BaseSettings):
     Similar to SpringBoot's application.yml + @ConfigurationProperties.
 
     Env vars examples:
-      - APP_NAME=My-RAG-Demo
+      - APP_NAME=Pai-School Backend
       - API_V1_PREFIX=/api/v1
       - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
       - BLSC_API_KEY=...
       - BLSC_BASE_URL=https://...
-      - DATABASE_URL=sqlite:///database/my_rag.db
-      - LOG_LEVEL=INFO
+        - DATABASE_URL=mysql+pymysql://user:password@127.0.0.1:3306/pai_school?charset=utf8mb4
+        - DB_DRIVER=mysql+pymysql
+        - DB_HOST=127.0.0.1
+        - DB_PORT=3306
+        - DB_NAME=pai_school
+        - DB_USER=root
+        - DB_PASSWORD=root
+        - LOG_LEVEL=INFO
     """
 
     model_config = SettingsConfigDict(
@@ -33,7 +39,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    APP_NAME: str = "My-RAG-Demo"
+    APP_NAME: str = "Pai-School Backend"
     API_V1_PREFIX: str = "/api/v1"
 
     # Comma-separated list in env var; we parse it manually.
@@ -44,7 +50,13 @@ class Settings(BaseSettings):
     BLSC_BASE_URL: str | None = None
 
     # Database
-    DATABASE_URL: str = f"sqlite:///{(ROOT_DIR / 'database' / 'my_rag.db').as_posix()}"
+    DB_DRIVER: str = "mysql+pymysql"
+    DB_HOST: str = "127.0.0.1"
+    DB_PORT: int = 3306
+    DB_NAME: str = "pai_school"
+    DB_USER: str = "root"
+    DB_PASSWORD: str = "root"
+    DATABASE_URL: str = ""
     # logger.info(f"DATABASE_URL: {DATABASE_URL}")
 
     # Logging
@@ -57,6 +69,22 @@ class Settings(BaseSettings):
         if raw == "*":
             return ["*"]
         return [part.strip() for part in raw.split(",") if part.strip()]
+
+    def database_url(self) -> str:
+        """返回数据库连接串。
+
+        说明：
+        - 优先使用 DATABASE_URL，便于快速切换环境
+        - 如果未配置 DATABASE_URL，则根据 DB_* 变量拼装
+        """
+
+        raw = (self.DATABASE_URL or "").strip()
+        if raw:
+            return raw
+        return (
+            f"{self.DB_DRIVER}://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
+        )
 
 
 @lru_cache

@@ -1,4 +1,6 @@
 .idea
+.vscode
+.trae
 .jbeval
 
 */.venv

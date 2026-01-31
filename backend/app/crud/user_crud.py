@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.user import User
+from app.models.users import Users
 
 
 class UserCRUD:
@@ -17,6 +17,5 @@ class UserCRUD:
     """
 
     @staticmethod
-    def list_users(db: Session) -> Sequence[User]:
-        return db.scalars(select(User).order_by(User.id)).all()
-
+    def list_users(db: Session) -> Sequence[Users]:
+        return db.scalars(select(Users).order_by(Users.id)).all()

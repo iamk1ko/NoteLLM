@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.crud.user_crud import UserCRUD
-from app.models.user import User
+from app.models.users import Users
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ class UserService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list_users(self) -> Sequence[User]:
+    def list_users(self) -> Sequence[Users]:
         logger.info("开始查询所有用户")
         users = UserCRUD.list_users(self.db)
         logger.info("查询完成，返回 {} 条用户记录", len(users))

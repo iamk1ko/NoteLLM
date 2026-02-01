@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # logger.info(f"DATABASE_URL: {DATABASE_URL}")
 
     # Logging
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = "DEBUG"
 
     def cors_origins_list(self) -> List[str]:
         raw = (self.CORS_ORIGINS or "").strip()

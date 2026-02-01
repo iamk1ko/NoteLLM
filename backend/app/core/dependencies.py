@@ -89,12 +89,15 @@ async def get_current_user(
     - 403 Forbidden: 用户权限不足（配合 require_admin 使用）
     """
 
-    if current_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供认证信息或认证信息无效",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # if current_user is None:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="未提供认证信息或认证信息无效",
+    #         headers={"WWW-Authenticate": "Bearer"},
+    #     )
+
+    # TODO: 目前模拟一个用户出来，后续集成用户系统后删除此行
+    current_user = User(id=1, username="kiko", role="admin")
 
     return current_user
 

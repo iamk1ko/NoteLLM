@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.crud.chat_session_crud import ChatSessionCRUD
 from app.crud.file_storage_crud import FileStorageCRUD
-from app.models import ChatSession, ChatSessionFile, FileStorage, User
+from app.models import ChatSession, User
 from app.schemas.chat_session import ChatSessionCreate, ChatSessionUpdate
 
 logger = get_logger(__name__)
@@ -37,6 +37,9 @@ class ChatSessionService:
         """
 
         logger.info("创建聊天会话：user_id={}, title={}", user.id, payload.title)
+        # TODO: 目前 payload ：{ title='测试会话_demo_01' biz_type='ai_chat' context_id=None status=1 } 还是一些基础信息。
+        #  后续可以使用一个小模型来生成更复杂的会话标题等信息。
+
         return ChatSessionCRUD.create_session(
             db=self.db,
             user_id=user.id,
@@ -66,7 +69,9 @@ class ChatSessionService:
                 db=self.db, page=page, size=size, biz_type=biz_type
             )
 
-        target_user_id = query_user_id if user.role == "admin" else user.id
+        target_user_id = (
+            query_user_id if (user.role == "admin" and query_user_id) else user.id
+        )
         return ChatSessionCRUD.get_user_sessions(
             db=self.db,
             user_id=target_user_id,
@@ -83,9 +88,20 @@ class ChatSessionService:
         - 管理员可以访问任意会话
         """
 
+        # TODO: session_id 已经是唯一了，这里区分用户和管理员查询的意义不大，后续可以简化。
         if user.role == "admin":
             return ChatSessionCRUD.get_session_by_id(self.db, session_id)
         return ChatSessionCRUD.get_user_session(self.db, session_id, user.id)
+
+    def get_session_files_ids(self, session_id: int) -> list[int]:
+        """获取会话关联的文件ID列表。
+
+        说明：
+        - 仅返回文件ID列表，不做权限检查
+        - 权限应由调用方先行校验
+        """
+
+        return ChatSessionCRUD.get_session_file_ids(self.db, session_id)
 
     def update_session(
         self, user: User, session_id: int, payload: ChatSessionUpdate

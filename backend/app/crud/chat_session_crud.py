@@ -48,11 +48,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     def create_session(
-        db: Session,
-        user_id: int,
-        title: str | None = None,
-        biz_type: str = "ai_chat",
-        context_id: str | None = None,
+            db: Session,
+            user_id: int,
+            title: str | None = None,
+            biz_type: str = "ai_chat",
+            context_id: str | None = None,
     ) -> ChatSession:
         """创建新的聊天会话。
 
@@ -94,11 +94,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     def get_user_sessions(
-        db: Session,
-        user_id: int,
-        page: int = 1,
-        size: int = 10,
-        biz_type: str | None = None,
+            db: Session,
+            user_id: int,
+            page: int = 1,
+            size: int = 10,
+            biz_type: str | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询用户的聊天会话列表（分页）。
 
@@ -152,6 +152,34 @@ class ChatSessionCRUD:
         return sessions, total
 
     @staticmethod
+    def get_all_sessions(
+            db: Session,
+            page: int = 1,
+            size: int = 10,
+            biz_type: str | None = None,
+    ) -> tuple[Sequence[ChatSession], int]:
+        """查询所有会话（管理员使用，分页）。
+
+        说明：
+        - 不限制 user_id，管理员可查看全部会话
+        - 可选按 biz_type 过滤
+        """
+
+        stmt = select(ChatSession)
+        count_stmt = select(func.count(ChatSession.id))
+
+        if biz_type:
+            stmt = stmt.where(ChatSession.biz_type == biz_type)
+            count_stmt = count_stmt.where(ChatSession.biz_type == biz_type)
+
+        total = db.scalar(count_stmt) or 0
+        stmt = (
+            stmt.order_by(ChatSession.id.desc()).offset((page - 1) * size).limit(size)
+        )
+        sessions = db.scalars(stmt).all()
+        return sessions, total
+
+    @staticmethod
     def get_session_by_id(db: Session, session_id: int) -> ChatSession | None:
         """根据 ID 获取聊天会话。
 
@@ -172,7 +200,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def get_user_session(
-        db: Session, session_id: int, user_id: int
+            db: Session, session_id: int, user_id: int
     ) -> ChatSession | None:
         """获取用户的聊天会话（带权限检查）。
 
@@ -199,7 +227,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def update_session(
-        db: Session, session_id: int, update_data: dict[str, Any]
+            db: Session, session_id: int, update_data: dict[str, Any]
     ) -> ChatSession | None:
         """更新聊天会话信息。
 
@@ -264,7 +292,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def get_session_with_file_count(
-        db: Session, session_id: int
+            db: Session, session_id: int
     ) -> tuple[ChatSession | None, int]:
         """获取会话详情（包含关联文件数量）。
 
@@ -288,19 +316,19 @@ class ChatSessionCRUD:
 
         # 统计关联文件数量
         file_count = (
-            db.scalar(
-                select(func.count(ChatSessionFile.id)).where(
-                    ChatSessionFile.chat_session_id == session_id
+                db.scalar(
+                    select(func.count(ChatSessionFile.id)).where(
+                        ChatSessionFile.chat_session_id == session_id
+                    )
                 )
-            )
-            or 0
+                or 0
         )
 
         return session, file_count
 
     @staticmethod
     def link_file_to_session(
-        db: Session, session_id: int, file_id: int
+            db: Session, session_id: int, file_id: int
     ) -> ChatSessionFile | None:
         """关联文件到会话。
 
@@ -382,6 +410,37 @@ class ChatSessionCRUD:
         )
 
         return True
+
+    @staticmethod
+    def link_files_to_session(db: Session, session_id: int, file_ids: list[int]) -> int:
+        """批量关联文件到会话。
+
+        返回值：
+        - int: 实际成功关联的数量
+        """
+
+        success = 0
+        for file_id in file_ids:
+            relation = ChatSessionCRUD.link_file_to_session(db, session_id, file_id)
+            if relation:
+                success += 1
+        return success
+
+    @staticmethod
+    def unlink_files_from_session(
+            db: Session, session_id: int, file_ids: list[int]
+    ) -> int:
+        """批量取消文件与会话的关联。
+
+        返回值：
+        - int: 实际取消关联的数量
+        """
+
+        success = 0
+        for file_id in file_ids:
+            if ChatSessionCRUD.unlink_file_from_session(db, session_id, file_id):
+                success += 1
+        return success
 
     @staticmethod
     def get_session_file_ids(db: Session, session_id: int) -> list[int]:

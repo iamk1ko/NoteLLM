@@ -1,0 +1,42 @@
+我现在已经创建好了chat_session、chat_message、file_storage、file_chunks相关的SQL表和python中的数据模型。
+
+## 项目描述
+该项目是一个基于RAG的聊天系统，用户可以发起聊天会话，并在会话中发送消息，这些消息可以包含文本和文件。系统需要存储聊天会话的信息、消息内容以及上传的文件。
+每个用户之间的会话记录（聊天记录）是有隔离的。用户自己上传的知识库文件，只能在自己的会话中使用，不能被其他用户访问到。
+此外，系统管理员可以上传一些公共的知识库文件，所有用户的会话都可以访问这些公共文件（即管理员可以管控文件的公开状态）。
+
+预计使用到的技术栈: fastapi、sqlalchemy、pydantic、langchain、langgraph、minio、milvus、redis、rabbitMQ、mysql等。
+
+[数据模型设计]
+1. ChatSession: 用户会话，包含 user_id, biz_type, title, context_id, status
+2. ChatMessage: 聊天消息，包含 session_id, user_id, role, content, model_name, token_count
+3. FileStorage: 文件存储，包含 user_id, filename, bucket_name, object_name, content_type, file_size, etag, status, chat_session_id
+4. FileChunks: 文件切片，包含 file_id, chunk_index, content, embedding_id
+5. User: 用户表
+
+[大致业务逻辑设计]
+大致业务逻辑如下：
+- 用户发起一个新的聊天会话，系统创建一个chat_session记录。
+- 用户在聊天会话中发送消息，系统创建chat_message记录，并关联到对应的chat_session。
+- 如果消息中包含文件，系统将文件存储在file_storage中，并将文件分块存储在file_chunks中，然后将文件的引用关联到chat_session。
+    - 每个文件可以有多个分块，分块按顺序存储。（文件存储和分块的具体业务代码先不要设计，只写思路即可）
+    - 文件存储记录包含文件的元数据，如文件名、大小、类型等。
+        - 文件分块记录包含分块的序号、内容等。
+- 系统需要提供接口，允许用户查询自己的聊天会话列表、会话详情和消息记录。
+- 用户只能访问自己的聊天会话和文件，管理员可以访问所有用户的聊天会话和公共文件。
+
+[接口设计和规范]
+返回给前端的数据格式，使用统一的响应类返回（app/schemas/response.py 中的 ApiResponse 类），接口设计符合 RESTful 风格。
+每一个接口的设计都需要包含以下内容：
+- 接口路径
+- 请求方法
+- 请求参数（路径参数、查询参数、请求体参数等）
+- 响应数据格式
+- 可能的错误码和错误信息
+请帮我设计以下接口：
+1. 创建聊天会话
+2. 发送聊天消息
+3. 上传文件
+4. 查询聊天会话列表
+5. 查询聊天会话详情和消息记录
+

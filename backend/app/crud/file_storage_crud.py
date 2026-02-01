@@ -1,0 +1,410 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import Session
+
+from app.core.logging import get_logger
+from app.models import FileStorage, ChatSessionFile
+
+logger = get_logger(__name__)
+
+
+class FileStorageCRUD:
+    """文件存储相关的数据库操作（Repository/DAO 层）。
+
+    说明：
+    - 负责 file_storage 表的 CRUD 操作
+    - 支持分页查询、按用户过滤、按可见性过滤
+    - 用于管理用户上传的文件和公共文件
+
+    使用示例：
+        ```python
+        # 创建文件记录
+        file = FileStorageCRUD.create_file(
+            db=session,
+            user_id=1,
+            filename="document.pdf",
+            content_type="application/pdf",
+            file_size=1024000,
+            bucket_name="user-files",
+            object_name="user1/document.pdf",
+            is_public=False
+        )
+
+        # 查询用户的文件列表（含公共文件）
+        files, total = FileStorageCRUD.get_user_files(
+            db=session,
+            user_id=1,
+            page=1,
+            size=10,
+            include_public=True
+        )
+
+        # 查询公共文件
+        public_files = FileStorageCRUD.get_public_files(
+            db=session,
+            page=1,
+            size=10
+        )
+        ```
+    """
+
+    @staticmethod
+    def create_file(
+        db: Session,
+        user_id: int,
+        filename: str,
+        content_type: str,
+        file_size: int,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+        is_public: bool = False,
+    ) -> FileStorage:
+        """创建文件存储记录。
+
+        参数说明：
+        - db: 数据库会话
+        - user_id: 上传用户 ID
+        - filename: 原始文件名
+        - content_type: 文件 MIME 类型
+        - file_size: 文件大小（字节）
+        - bucket_name: MinIO 存储桶名称
+        - object_name: MinIO 对象名称
+        - etag: 文件 ETag（可选）
+        - is_public: 是否为公共文件（默认 False）
+
+        返回值：
+        - FileStorage: 创建成功的文件对象
+
+        注意事项：
+        - 不检查用户是否存在（由调用方确保）
+        - 不检查文件是否已上传到 MinIO（由调用方确保）
+        - 不处理权限检查（由调用方确保）
+        - etag 用于文件完整性校验
+        """
+
+        file_storage = FileStorage(
+            user_id=user_id,
+            filename=filename,
+            content_type=content_type,
+            file_size=file_size,
+            bucket_name=bucket_name,
+            object_name=object_name,
+            etag=etag,
+            is_public=is_public,
+            status=1,
+        )
+
+        db.add(file_storage)
+        db.commit()
+        db.refresh(file_storage)
+
+        logger.info(
+            "创建文件存储记录：file_id={}, user_id={}, filename={}, is_public={}",
+            file_storage.id,
+            user_id,
+            filename,
+            is_public,
+        )
+
+        return file_storage
+
+    @staticmethod
+    def get_user_files(
+        db: Session,
+        user_id: int,
+        page: int = 1,
+        size: int = 10,
+        include_public: bool = True,
+    ) -> tuple[Sequence[FileStorage], int]:
+        """查询用户的文件列表（分页，可包含公共文件）。
+
+        参数说明：
+        - db: 数据库会话
+        - user_id: 用户 ID
+        - page: 页码（从 1 开始）
+        - size: 每页数量
+        - include_public: 是否包含公共文件（默认 True）
+
+        返回值：
+        - tuple: (文件列表, 总数量)
+
+        注意事项：
+        - 包含用户的私有文件
+        - 如果 include_public=True，还包含所有公共文件
+        - 只返回 status=1 的文件（可用状态）
+        - 按 id 倒序排列（最新文件在前）
+        """
+
+        # 构建查询条件：用户自己的文件 或 公共文件
+        stmt = select(FileStorage).where(FileStorage.status == 1)
+
+        if include_public:
+            stmt = stmt.where(
+                or_(
+                    FileStorage.user_id == user_id,  # 用户的私有文件
+                    FileStorage.is_public == True,  # 公共文件
+                )
+            )
+        else:
+            stmt = stmt.where(FileStorage.user_id == user_id)
+
+        # 查询总数
+        count_stmt = select(func.count(FileStorage.id)).where(FileStorage.status == 1)
+        if include_public:
+            count_stmt = count_stmt.where(
+                or_(
+                    FileStorage.user_id == user_id,
+                    FileStorage.is_public == True,
+                )
+            )
+        else:
+            count_stmt = count_stmt.where(FileStorage.user_id == user_id)
+
+        total = db.scalar(count_stmt) or 0
+
+        # 分页查询
+        stmt = (
+            stmt.order_by(FileStorage.id.desc()).offset((page - 1) * size).limit(size)
+        )
+
+        files = db.scalars(stmt).all()
+
+        logger.debug(
+            "查询用户文件列表：user_id={}, total={}, page={}, size={}",
+            user_id,
+            total,
+            page,
+            size,
+        )
+
+        return files, total
+
+    @staticmethod
+    def get_file_by_id(db: Session, file_id: int) -> FileStorage | None:
+        """根据 ID 获取文件。
+
+        参数说明：
+        - db: 数据库会话
+        - file_id: 文件 ID
+
+        返回值：
+        - FileStorage | None: 文件对象或 None（不存在）
+
+        注意事项：
+        - 不进行权限检查（由调用方确保）
+        - 可以查询任意状态的文件
+        """
+
+        file = db.get(FileStorage, file_id)
+        return file
+
+    @staticmethod
+    def get_user_file(db: Session, file_id: int, user_id: int) -> FileStorage | None:
+        """获取用户的文件（带权限检查）。
+
+        参数说明：
+        - db: 数据库会话
+        - file_id: 文件 ID
+        - user_id: 用户 ID
+
+        返回值：
+        - FileStorage | None: 文件对象或 None（不存在或无权限）
+
+        注意事项：
+        - 检查文件是否属于该用户或为公共文件
+        - 管理员需要使用 get_file_by_id 方法
+        - 此方法用于普通用户访问自己的文件或公共文件
+        """
+
+        file = db.scalar(
+            select(FileStorage).where(
+                and_(
+                    FileStorage.id == file_id,
+                    FileStorage.status == 1,
+                    or_(
+                        FileStorage.user_id == user_id,  # 用户的私有文件
+                        FileStorage.is_public == True,  # 公共文件
+                    ),
+                )
+            )
+        )
+        return file
+
+    @staticmethod
+    def get_public_files(
+        db: Session, page: int = 1, size: int = 10
+    ) -> tuple[Sequence[FileStorage], int]:
+        """查询公共文件列表（分页）。
+
+        参数说明：
+        - db: 数据库会话
+        - page: 页码（从 1 开始）
+        - size: 每页数量
+
+        返回值：
+        - tuple: (文件列表, 总数量)
+
+        注意事项：
+        - 只返回 is_public=True 的文件
+        - 只返回 status=1 的文件（可用状态）
+        - 按 id 倒序排列（最新文件在前）
+        - 用于展示公共知识库
+        """
+
+        stmt = select(FileStorage).where(
+            and_(
+                FileStorage.is_public == True,
+                FileStorage.status == 1,
+            )
+        )
+
+        # 查询总数
+        total = (
+            db.scalar(
+                select(func.count(FileStorage.id)).where(
+                    and_(
+                        FileStorage.is_public == True,
+                        FileStorage.status == 1,
+                    )
+                )
+            )
+            or 0
+        )
+
+        # 分页查询
+        stmt = (
+            stmt.order_by(FileStorage.id.desc()).offset((page - 1) * size).limit(size)
+        )
+
+        files = db.scalars(stmt).all()
+
+        logger.debug("查询公共文件列表：total={}, page={}, size={}", total, page, size)
+
+        return files, total
+
+    @staticmethod
+    def update_file_status(
+        db: Session, file_id: int, status: int
+    ) -> FileStorage | None:
+        """更新文件状态。
+
+        参数说明：
+        - db: 数据库会话
+        - file_id: 文件 ID
+        - status: 文件状态（1-可用，2-已删除，3-禁用）
+
+        返回值：
+        - FileStorage | None: 更新后的文件对象或 None（不存在）
+
+        注意事项：
+        - 不检查权限（由调用方确保）
+        - 常用于软删除或禁用文件
+        - 不实际删除 MinIO 中的文件（由调用方处理）
+        """
+
+        file = db.get(FileStorage, file_id)
+        if not file:
+            return None
+
+        file.status = status
+        db.commit()
+        db.refresh(file)
+
+        logger.info("更新文件状态：file_id={}, status={}", file_id, status)
+
+        return file
+
+    @staticmethod
+    def delete_file(db: Session, file_id: int) -> bool:
+        """删除文件（硬删除）。
+
+        参数说明：
+        - db: 数据库会话
+        - file_id: 文件 ID
+
+        返回值：
+        - bool: True 表示删除成功，False 表示文件不存在
+
+        注意事项：
+        - 硬删除（直接从数据库删除）
+        - 不检查权限（由调用方确保）
+        - 不实际删除 MinIO 中的文件（由调用方处理）
+        - 需要同时删除与会话的关联记录
+        """
+
+        file = db.get(FileStorage, file_id)
+        if not file:
+            return False
+
+        # 先删除与会话的关联记录
+        db.query(ChatSessionFile).filter(ChatSessionFile.file_id == file_id).delete()
+
+        # 再删除文件记录
+        db.delete(file)
+        db.commit()
+
+        logger.info("删除文件：file_id={}", file_id)
+
+        return True
+
+    @staticmethod
+    def get_session_files(db: Session, session_id: int) -> Sequence[FileStorage]:
+        """获取会话关联的所有文件。
+
+        参数说明：
+        - db: 数据库会话
+        - session_id: 会话 ID
+
+        返回值：
+        - Sequence[FileStorage]: 文件对象列表
+
+        注意事项：
+        - 通过 JOIN chat_session_files 表查询
+        - 不检查文件权限（由调用方确保）
+        - 只返回 status=1 的文件（可用状态）
+        - 用于展示会话使用的知识库文件
+        """
+
+        files = db.scalars(
+            select(FileStorage)
+            .join(ChatSessionFile, FileStorage.id == ChatSessionFile.file_id)
+            .where(ChatSessionFile.chat_session_id == session_id)
+            .where(FileStorage.status == 1)
+        ).all()
+
+        logger.debug(
+            "查询会话关联文件：session_id={}, count={}",
+            session_id,
+            len(files),
+        )
+
+        return files
+
+    @staticmethod
+    def get_file_usage_count(db: Session, file_id: int) -> int:
+        """获取文件被多少个会话使用。
+
+        参数说明：
+        - db: 数据库会话
+        - file_id: 文件 ID
+
+        返回值：
+        - int: 使用该文件的会话数量
+
+        注意事项：
+        - 通过 chat_session_files 表统计
+        - 用于判断文件是否可以被删除
+        - 如果被多个会话使用，删除时需要确认
+        """
+
+        count = db.scalar(
+            select(func.count(ChatSessionFile.id)).where(
+                ChatSessionFile.file_id == file_id
+            )
+        )
+
+        return count or 0

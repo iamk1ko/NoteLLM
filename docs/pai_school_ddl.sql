@@ -109,3 +109,18 @@ CREATE TABLE IF NOT EXISTS file_chunks
     create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_file_chunk (file_id, chunk_index)
 ) COMMENT ='文件切片表';
+
+
+-- 会话-文件关联表
+drop table if exists chat_session_files;
+CREATE TABLE `chat_session_files` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `chat_session_id` BIGINT NOT NULL COMMENT '会话ID，关联chat_session.id',
+  `file_id` BIGINT NOT NULL COMMENT '文件ID，关联file_storage.id',
+  `create_time` DATETIME(6) NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '关联时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_session_file` (`chat_session_id`, `file_id`),
+  KEY `idx_chat_session_id` (`chat_session_id`),
+  KEY `idx_file_id` (`file_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='会话-文件关联表（chat_session_files）';

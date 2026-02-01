@@ -54,6 +54,9 @@ class ChatMessageOut(BaseModel):
     id: int = Field(..., description="消息ID")
     session_id: int = Field(..., description="会话ID")
     user_id: int = Field(..., description="用户ID")
+    role: str = Field(..., description="消息角色：user/assistant/system/tool")
+    content: str = Field(..., description="消息内容")
+    model_name: str | None = Field(None, description="使用的模型名称")
     token_count: int | None = Field(None, description="消息的Token数量")
     create_time: datetime | None = Field(None, description="创建时间")
 

@@ -60,6 +60,9 @@ class FileStorageOut(FileStorageBase):
     status: int = Field(..., description="文件状态：1-可用，2-已删除，3-禁用")
     create_time: datetime | None = Field(None, description="上传时间")
     update_time: datetime | None = Field(None, description="更新时间")
+    bucket_name: str | None = Field(None, description="存储桶名称")
+    object_name: str | None = Field(None, description="对象名称")
+    etag: str | None = Field(None, description="文件ETag")
 
     # 可选：上传者信息
     uploader_name: str | None = Field(None, description="上传者姓名")

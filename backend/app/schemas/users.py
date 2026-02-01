@@ -14,6 +14,9 @@ class UserBase(BaseModel):
 
     username: str = Field(..., min_length=3, max_length=20, description="用户名")
     name: str = Field(..., min_length=1, max_length=10, description="姓名")
+    role: str = Field("user", description="用户角色：user-普通用户，admin-管理员")
+    status: int = Field(1, ge=1, le=3, description="用户状态：1-正常，2-禁用，3-删除")
+    last_login_time: datetime | None = Field(None, description="最近登录时间")
     gender: int = Field(3, ge=1, le=3, description="性别：1男 2女 3保密")
     phone: str | None = Field(None, max_length=11, description="手机号")
     email: str | None = Field(None, max_length=50, description="邮箱")
@@ -47,6 +50,11 @@ class UserUpdate(BaseModel):
         None, min_length=6, max_length=255, description="密码hash"
     )
     name: str | None = Field(None, min_length=1, max_length=10, description="姓名")
+    role: str | None = Field(None, description="用户角色：user-普通用户，admin-管理员")
+    status: int | None = Field(
+        None, ge=1, le=3, description="用户状态：1-正常，2-禁用，3-删除"
+    )
+    last_login_time: datetime | None = Field(None, description="最近登录时间")
     gender: int | None = Field(None, ge=1, le=3, description="性别：1男 2女 3保密")
     phone: str | None = Field(None, max_length=11, description="手机号")
     email: str | None = Field(None, max_length=50, description="邮箱")

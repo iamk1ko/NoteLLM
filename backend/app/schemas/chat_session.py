@@ -19,7 +19,7 @@ class ChatSessionBase(BaseModel):
         "ai_chat", description="业务类型：ai_chat/pdf_qa/customer_service等"
     )
     context_id: str | None = Field(None, description="外部上下文ID，如PDF文档ID")
-    status: int = Field(1, ge=0, le=1, description="会话状态：1-进行中，0-已结束")
+    status: int = Field(1, ge=0, le=1, description="会话状态：1-正常，0-删除")
 
 
 class ChatSessionCreate(ChatSessionBase):
@@ -63,9 +63,7 @@ class ChatSessionUpdate(BaseModel):
     """
 
     title: str | None = Field(None, max_length=255, description="会话标题")
-    status: int | None = Field(
-        None, ge=0, le=1, description="会话状态：1-进行中，0-已结束"
-    )
+    status: int | None = Field(None, ge=0, le=1, description="会话状态：1-正常，0-删除")
 
 
 class ChatSessionOut(ChatSessionBase):

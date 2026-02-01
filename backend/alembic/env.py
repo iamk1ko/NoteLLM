@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# 添加当前目录到 sys.path，确保能找到 app 模块
+current_dir = Path(__file__).parent.parent
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
+
 from app.core.settings import get_settings
 from app.core.logging import get_logger
 from app.core.db import Base
 import app.models  # noqa: F401  # 触发模型加载，保证 metadata 完整
-
 
 logger = get_logger(__name__)
 

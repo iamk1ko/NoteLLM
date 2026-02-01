@@ -335,10 +335,13 @@ class ChatMessageCRUD:
         - 通常在删除会话时调用
         """
 
-        count = db.scalar(
-            select(func.count(ChatMessage.id)).where(
-                ChatMessage.session_id == session_id
+        count = (
+            db.scalar(
+                select(func.count(ChatMessage.id)).where(
+                    ChatMessage.session_id == session_id
+                )
             )
+            or 0
         )
 
         db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()

@@ -91,7 +91,7 @@ class FileStorage(Base):
         BigInteger, nullable=False, comment="文件大小，单位字节"
     )
     etag: Mapped[str | None] = mapped_column(
-        String(100), nullable=True, comment="文件ETag (MD5哈希值）"
+        String(100), nullable=True, comment="文件ETag (MD5哈希值)"
     )
 
     # 公开性字段（新增）

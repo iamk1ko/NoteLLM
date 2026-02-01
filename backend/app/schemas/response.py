@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Any
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,7 @@ class ApiResponse(BaseModel, Generic[T]):
         return cls(code=0, message=message, data=data)
 
     @classmethod
-    def fail(cls, code: int, message: str) -> "ApiResponse[None]":
+    def fail(cls, code: int, message: str) -> "ApiResponse[Any]":
         """快速构造失败响应。"""
 
         return cls(code=code, message=message, data=None)

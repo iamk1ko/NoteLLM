@@ -14,6 +14,8 @@ create table if not exists users
     username       varchar(20)                                         not null comment '用户名',
     password       varchar(255)                                        not null comment '密码hash',
     name           varchar(10)                                         not null comment '姓名',
+    role           varchar(20)     default 'user'                       not null comment '用户角色：user-普通用户，admin-管理员',
+    status         tinyint unsigned default 1                           not null comment '用户状态：1-正常，2-禁用，3-删除',
     gender         tinyint unsigned default 3                          not null comment '性别, 1:男, 2:女, 3:保密',
     phone          char(11)                                            null comment '手机号',
     email          varchar(50)                                         null comment '电子邮箱',
@@ -25,7 +27,10 @@ create table if not exists users
         unique (phone),
     constraint username
         unique (username),
-    index idx_avatar_file_id (avatar_file_id)
+    index idx_avatar_file_id (avatar_file_id),
+    index idx_role (role),
+    index idx_status (status),
+    index idx_create_time (create_time)
 )
     comment '用户表';
 
@@ -42,7 +47,8 @@ CREATE TABLE IF NOT EXISTS chat_session
     create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_user_biz (user_id, biz_type),
-    INDEX idx_user_created (user_id, create_time)
+    INDEX idx_user_created (user_id, create_time),
+    INDEX idx_user_status (user_id, status)
 ) COMMENT ='聊天会话表';
 
 drop table if exists chat_message;
@@ -51,13 +57,14 @@ CREATE TABLE IF NOT EXISTS chat_message
     id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
     session_id  BIGINT UNSIGNED                    NOT NULL COMMENT '会话ID，对应chat_session.id',
     user_id     INT UNSIGNED                       NOT NULL COMMENT '所属用户ID',
-    role        ENUM ('user','assistant','system') NOT NULL COMMENT '消息角色',
+    role        ENUM ('user','assistant','system','tool') NOT NULL COMMENT '消息角色',
     content     TEXT                               NOT NULL COMMENT '消息内容',
     model_name  VARCHAR(100) DEFAULT NULL COMMENT '使用的模型（如 gpt-4o, qwen-2 等）',
     token_count INT          DEFAULT NULL COMMENT '本次消息的token数',
     create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_session (session_id),
     INDEX idx_session_time (session_id, create_time),
+    INDEX idx_session_id (session_id, id),
     INDEX idx_user (user_id)
 ) COMMENT ='聊天消息表';
 
@@ -87,11 +94,14 @@ CREATE TABLE IF NOT EXISTS `file_storage`
     `content_type`    VARCHAR(100)                               NOT NULL COMMENT '文件MIME类型（如：image/jpeg、application/pdf）',
     `file_size`       BIGINT UNSIGNED                            NOT NULL COMMENT '文件大小（字节）',
     `etag`            VARCHAR(100)                               NULL COMMENT 'MinIO返回的文件唯一标识（用于校验文件完整性）',
+    `is_public`       TINYINT(1)      DEFAULT 0                  NOT NULL COMMENT '是否为公共文件：1-公共，0-私有',
     `status`          TINYINT UNSIGNED DEFAULT 1                 NOT NULL COMMENT '文件状态：1-可用，2-已删除，3-禁用',
     `chat_session_id` bigint unsigned                            null comment '所属于哪一个会话id',
     `upload_time`     DATETIME         DEFAULT CURRENT_TIMESTAMP NULL COMMENT '上传时间',
     `update_time`     DATETIME                                   NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_public` (`is_public`),
+    INDEX `idx_user_public` (`user_id`, `is_public`),
     INDEX `idx_bucket_object` (`bucket_name`, `object_name`),
     INDEX `idx_chat_session_id` (`chat_session_id`)
 )
@@ -107,7 +117,8 @@ CREATE TABLE IF NOT EXISTS file_chunks
     content      TEXT            NOT NULL COMMENT '切片内容',
     embedding_id VARCHAR(128) DEFAULT NULL COMMENT '向量库记录ID',
     create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_file_chunk (file_id, chunk_index)
+    INDEX idx_file_chunk (file_id, chunk_index),
+    INDEX idx_file_id (file_id)
 ) COMMENT ='文件切片表';
 
 

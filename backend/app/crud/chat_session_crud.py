@@ -281,22 +281,19 @@ class ChatSessionCRUD:
         - 用于会话列表显示关联文件数量
         """
 
-        session = db.scalar(
-            select(ChatSession)
-            .options(
-                joinedload(ChatSession.session_files)  # 预加载关联文件
-            )
-            .where(ChatSession.id == session_id)
-        )
+        session = db.scalar(select(ChatSession).where(ChatSession.id == session_id))
 
         if not session:
             return None, 0
 
         # 统计关联文件数量
-        file_count = db.scalar(
-            select(func.count(ChatSessionFile.id)).where(
-                ChatSessionFile.chat_session_id == session_id
+        file_count = (
+            db.scalar(
+                select(func.count(ChatSessionFile.id)).where(
+                    ChatSessionFile.chat_session_id == session_id
+                )
             )
+            or 0
         )
 
         return session, file_count

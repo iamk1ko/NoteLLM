@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -67,12 +67,27 @@ class User(Base):
     )
     name: Mapped[str] = mapped_column(String(10), nullable=False, comment="真实姓名")
 
-    # 角色字段（新增）
+    # 角色字段
     role: Mapped[str] = mapped_column(
         String(20),
         default="user",
         nullable=False,
         comment="用户角色：user-普通用户，admin-管理员",
+    )
+
+    # 状态字段（与 DDL 对齐）
+    status: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+        comment="用户状态：1-正常，2-禁用，3-删除",
+    )
+
+    # 最近登录时间（与 DDL 对齐）
+    last_login_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="最近登录时间",
     )
 
     # 个人信息
@@ -86,7 +101,7 @@ class User(Base):
         String(50), nullable=True, comment="电子邮箱"
     )
     avatar_file_id: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="头像文件ID"
+        BigInteger, nullable=True, comment="头像文件ID"
     )
     bio: Mapped[str | None] = mapped_column(
         String(255),

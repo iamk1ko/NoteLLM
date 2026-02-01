@@ -34,9 +34,9 @@ class SessionFileBindIn(BaseModel):
 
 @router.post("/sessions", response_model=ApiResponse[ChatSessionOut])
 def create_session(
-        payload: ChatSessionCreate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    payload: ChatSessionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionOut]:
     """创建会话。
 
@@ -51,12 +51,12 @@ def create_session(
 
 @router.get("/sessions", response_model=ApiResponse[ChatSessionListResponse])
 def list_sessions(
-        page: int = Query(1, ge=1, description="页码，从 1 开始"),
-        size: int = Query(10, ge=1, le=100, description="每页数量"),
-        biz_type: str | None = Query(None, description="业务类型过滤"),
-        user_id: int | None = Query(None, description="管理员可指定用户ID"),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(10, ge=1, le=100, description="每页数量"),
+    biz_type: str | None = Query(None, description="业务类型过滤"),
+    user_id: int | None = Query(None, description="管理员可指定用户ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionListResponse]:
     """查询会话列表（分页）。
 
@@ -79,9 +79,9 @@ def list_sessions(
 
 @router.get("/sessions/{session_id}", response_model=ApiResponse[ChatSessionWithFiles])
 def get_session_detail(
-        session_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionWithFiles]:
     """获取会话详情。
 
@@ -104,9 +104,9 @@ def get_session_detail(
 
 @router.delete("/sessions/{session_id}", response_model=ApiResponse[dict])
 def delete_session(
-        session_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """删除会话。
 
@@ -123,10 +123,10 @@ def delete_session(
 
 @router.post("/sessions/{session_id}/files", response_model=ApiResponse[dict])
 def attach_files(
-        session_id: int,
-        payload: SessionFileBindIn,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    session_id: int,
+    payload: SessionFileBindIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """关联文件到会话。
 
@@ -143,10 +143,10 @@ def attach_files(
 
 @router.delete("/sessions/{session_id}/files", response_model=ApiResponse[dict])
 def detach_files(
-        session_id: int,
-        payload: SessionFileBindIn,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    session_id: int,
+    payload: SessionFileBindIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """取消文件与会话关联。"""
 

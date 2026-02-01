@@ -46,6 +46,39 @@ class FileUploadCreate(FileStorageBase):
     pass
 
 
+class FileChunkUploadIn(BaseModel):
+    """分片上传请求模型。
+
+    说明：
+    - 用于分片上传接口的元数据部分
+    - file_chunk 本体通过 UploadFile 接收，不在此模型中定义
+    """
+
+    file_md5: str = Field(..., min_length=32, max_length=64, description="文件MD5")
+    chunk_index: int = Field(..., ge=0, description="分片索引，从0开始")
+    total_chunks: int = Field(..., ge=1, description="总分片数")
+    chunk_size: int = Field(..., ge=1, description="当前分片大小（字节）")
+    total_size: int = Field(..., ge=1, description="文件总大小（字节）")
+    file_name: str = Field(..., max_length=255, description="文件名称")
+    content_type: str = Field(..., max_length=100, description="文件MIME类型")
+    is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")
+
+
+class FileUploadCompleteIn(BaseModel):
+    """合并完成请求模型。
+
+    说明：
+    - 由客户端在上传完所有分片后调用
+    - 服务器将进行合并、MD5校验、写入 file_storage
+    """
+
+    file_md5: str = Field(..., min_length=32, max_length=64, description="文件MD5")
+    total_chunks: int = Field(..., ge=1, description="总分片数")
+    file_name: str = Field(..., max_length=255, description="文件名称")
+    content_type: str = Field(..., max_length=100, description="文件MIME类型")
+    is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")
+
+
 class FileStorageOut(FileStorageBase):
     """文件存储输出模型。
 
@@ -58,7 +91,7 @@ class FileStorageOut(FileStorageBase):
     id: int = Field(..., description="文件ID")
     user_id: int = Field(..., description="上传用户ID")
     status: int = Field(..., description="文件状态：1-可用，2-已删除，3-禁用")
-    create_time: datetime | None = Field(None, description="上传时间")
+    upload_time: datetime | None = Field(None, description="上传时间")
     update_time: datetime | None = Field(None, description="更新时间")
     bucket_name: str | None = Field(None, description="存储桶名称")
     object_name: str | None = Field(None, description="对象名称")

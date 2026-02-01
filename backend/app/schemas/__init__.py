@@ -38,6 +38,8 @@ from app.schemas.chat_message import (
 )
 from app.schemas.file_storage import (
     FileUploadCreate,
+    FileChunkUploadIn,
+    FileUploadCompleteIn,
     FileStorageOut,
     FileListResponse,
     FileSessionRelation,
@@ -67,6 +69,8 @@ __all__ = [
     "ChatMessageIn",
     # 文件相关
     "FileUploadCreate",
+    "FileChunkUploadIn",
+    "FileUploadCompleteIn",
     "FileStorageOut",
     "FileListResponse",
     "FileSessionRelation",

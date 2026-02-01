@@ -4,5 +4,6 @@
 .jbeval
 
 */.venv
+backend/alembic
 
 docs/docker/volumes

@@ -14,8 +14,8 @@ create table if not exists users
     username       varchar(20)                                         not null comment '用户名',
     password       varchar(255)                                        not null comment '密码hash',
     name           varchar(10)                                         not null comment '姓名',
-    role           varchar(20)     default 'user'                       not null comment '用户角色：user-普通用户，admin-管理员',
-    status         tinyint unsigned default 1                           not null comment '用户状态：1-正常，2-禁用，3-删除',
+    role           varchar(20)      default 'user'                     not null comment '用户角色：user-普通用户，admin-管理员',
+    status         tinyint unsigned default 1                          not null comment '用户状态：1-正常，2-禁用，3-删除',
     gender         tinyint unsigned default 3                          not null comment '性别, 1:男, 2:女, 3:保密',
     phone          char(11)                                            null comment '手机号',
     email          varchar(50)                                         null comment '电子邮箱',
@@ -55,10 +55,10 @@ drop table if exists chat_message;
 CREATE TABLE IF NOT EXISTS chat_message
 (
     id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '消息ID',
-    session_id  BIGINT UNSIGNED                    NOT NULL COMMENT '会话ID，对应chat_session.id',
-    user_id     INT UNSIGNED                       NOT NULL COMMENT '所属用户ID',
+    session_id  BIGINT UNSIGNED                           NOT NULL COMMENT '会话ID，对应chat_session.id',
+    user_id     INT UNSIGNED                              NOT NULL COMMENT '所属用户ID',
     role        ENUM ('user','assistant','system','tool') NOT NULL COMMENT '消息角色',
-    content     TEXT                               NOT NULL COMMENT '消息内容',
+    content     TEXT                                      NOT NULL COMMENT '消息内容',
     model_name  VARCHAR(100) DEFAULT NULL COMMENT '使用的模型（如 gpt-4o, qwen-2 等）',
     token_count INT          DEFAULT NULL COMMENT '本次消息的token数',
     create_time DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `file_storage`
     `content_type`    VARCHAR(100)                               NOT NULL COMMENT '文件MIME类型（如：image/jpeg、application/pdf）',
     `file_size`       BIGINT UNSIGNED                            NOT NULL COMMENT '文件大小（字节）',
     `etag`            VARCHAR(100)                               NULL COMMENT 'MinIO返回的文件唯一标识（用于校验文件完整性）',
-    `is_public`       TINYINT(1)      DEFAULT 0                  NOT NULL COMMENT '是否为公共文件：1-公共，0-私有',
+    `is_public`       TINYINT(1)       DEFAULT 0                 NOT NULL COMMENT '是否为公共文件：1-公共，0-私有',
     `status`          TINYINT UNSIGNED DEFAULT 1                 NOT NULL COMMENT '文件状态：1-可用，2-已删除，3-禁用',
     `chat_session_id` bigint unsigned                            null comment '所属于哪一个会话id',
     `upload_time`     DATETIME         DEFAULT CURRENT_TIMESTAMP NULL COMMENT '上传时间',
@@ -107,31 +107,43 @@ CREATE TABLE IF NOT EXISTS `file_storage`
 )
     COMMENT '文件存储表（MinIO文件元数据）';
 
--- 向量切片表（可选，用于RAG索引）
+-- 文件分片/切片表（用于分片上传文件）
 drop table if exists file_chunks;
-CREATE TABLE IF NOT EXISTS file_chunks
+CREATE TABLE `file_chunks`
 (
-    id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '切片ID',
-    file_id      BIGINT UNSIGNED NOT NULL COMMENT '文件ID，对应file_storage.id',
-    chunk_index  INT UNSIGNED    NOT NULL COMMENT '切片序号',
-    content      TEXT            NOT NULL COMMENT '切片内容',
-    embedding_id VARCHAR(128) DEFAULT NULL COMMENT '向量库记录ID',
-    create_time  DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_file_chunk (file_id, chunk_index),
-    INDEX idx_file_id (file_id)
-) COMMENT ='文件切片表';
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `file_id`     BIGINT                DEFAULT NULL COMMENT '所属文件ID（合并成功后回填）',
+    `file_md5`    VARCHAR(64)  NOT NULL COMMENT '文件MD5，用于上传会话标识',
+    `chunk_index` INT          NOT NULL COMMENT '分片索引，从0开始',
+    `chunk_size`  INT          NOT NULL COMMENT '分片大小（字节）',
+    `etag`        VARCHAR(100)          DEFAULT NULL COMMENT '分片ETag/MD5',
+    `bucket_name` VARCHAR(100) NOT NULL COMMENT '临时桶名称',
+    `object_name` VARCHAR(255) NOT NULL COMMENT '分片对象名称',
+    `status`      INT          NOT NULL DEFAULT 1 COMMENT '分片状态：0-上传中，1-已上传，2-已合并，3-失败',
+    `create_time` DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    `update_time` DATETIME(6)           DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_file_md5_chunk_index` (`file_md5`, `chunk_index`),
+    KEY `idx_file_id` (`file_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+  ROW_FORMAT = DYNAMIC COMMENT ='文件分片表（file_chunks）';
 
 
 -- 会话-文件关联表
 drop table if exists chat_session_files;
-CREATE TABLE `chat_session_files` (
-  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `chat_session_id` BIGINT NOT NULL COMMENT '会话ID，关联chat_session.id',
-  `file_id` BIGINT NOT NULL COMMENT '文件ID，关联file_storage.id',
-  `create_time` DATETIME(6) NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '关联时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_session_file` (`chat_session_id`, `file_id`),
-  KEY `idx_chat_session_id` (`chat_session_id`),
-  KEY `idx_file_id` (`file_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会话-文件关联表（chat_session_files）';
+CREATE TABLE `chat_session_files`
+(
+    `id`              BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `chat_session_id` BIGINT      NOT NULL COMMENT '会话ID，关联chat_session.id',
+    `file_id`         BIGINT      NOT NULL COMMENT '文件ID，关联file_storage.id',
+    `create_time`     DATETIME(6) NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '关联时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_session_file` (`chat_session_id`, `file_id`),
+    KEY `idx_chat_session_id` (`chat_session_id`),
+    KEY `idx_file_id` (`file_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci
+    COMMENT ='会话-文件关联表（chat_session_files）';

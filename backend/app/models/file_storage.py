@@ -6,6 +6,15 @@ from sqlalchemy import Boolean, DateTime, Integer, String, BigInteger, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+from enum import IntEnum
+
+
+class FileStatus(IntEnum):
+    """文件状态枚举：0-上传中，1-已上传，2-已嵌入，3-已删除"""
+    UPLOADING = 0
+    UPLOADED = 1
+    EMBEDDED = 2
+    DELETED = 3
 
 
 class FileStorage(Base):
@@ -104,7 +113,7 @@ class FileStorage(Base):
 
     # 状态字段
     status: Mapped[int] = mapped_column(
-        Integer, default=1, nullable=False, comment="文件状态：1-可用，2-已删除，3-禁用"
+        Integer, default=FileStatus.UPLOADED.value, nullable=False, comment="文件状态：0-上传中，1-已上传，2-已嵌入(向量化)，3-已删除"
     )
 
     # 会话关联（保留用于快速创建场景）

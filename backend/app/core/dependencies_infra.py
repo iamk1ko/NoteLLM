@@ -25,7 +25,8 @@ def get_redis(request: Request) -> Redis:
 def get_minio(request: Request) -> Minio:
     """获取 MinIO 客户端（依赖注入）。"""
 
-    minio_client = getattr(request.app.state, "minio", None)
+    infra = getattr(request.app.state, "infra", None)
+    minio_client = getattr(infra, "minio", None) if infra else None
     if minio_client is None:
         raise HTTPException(status_code=503, detail="MinIO 客户端未初始化")
     return minio_client
@@ -34,14 +35,15 @@ def get_minio(request: Request) -> Minio:
 def get_rabbitmq_connection(request: Request) -> AbstractRobustConnection:
     """获取 RabbitMQ 连接（依赖注入）。"""
 
-    rabbitmq = getattr(request.app.state, "rabbitmq", None)
+    infra = getattr(request.app.state, "infra", None)
+    rabbitmq = getattr(infra, "rabbitmq", None) if infra else None
     if rabbitmq is None:
         raise HTTPException(status_code=503, detail="RabbitMQ 客户端未初始化")
     return rabbitmq
 
 
 async def get_rabbitmq_channel(
-    request: Request,
+        request: Request,
 ) -> AsyncGenerator[AbstractChannel, None]:
     """获取 RabbitMQ Channel（依赖注入）。
 

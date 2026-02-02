@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.dependencies import get_current_user
+from app.core.dependencies_infra import get_redis, get_minio, get_rabbitmq_channel
 from app.schemas.file_storage import (
     FileListResponse,
     FileStorageOut,
@@ -15,23 +16,29 @@ from app.schemas.response import ApiResponse
 from app.services.file_storage_service import FileStorageService
 from app.crud.file_storage_crud import FileStorageCRUD
 from app.models import User
+from aio_pika.abc import AbstractChannel
+from minio import Minio
+from redis.asyncio import Redis
 
 router = APIRouter(tags=["files"])
 
 
 @router.post("/files/upload/chunk", response_model=ApiResponse[dict])
 def upload_chunk(
-    file_md5: str = Form(..., description="文件MD5"),
-    chunk_index: int = Form(..., description="分片索引，从0开始"),
-    total_chunks: int = Form(..., description="总分片数"),
-    chunk_size: int = Form(..., description="当前分片大小（字节）"),
-    total_size: int = Form(..., description="文件总大小（字节）"),
-    file_name: str = Form(..., description="文件名称"),
-    content_type: str = Form(..., description="文件MIME类型"),
-    is_public: bool = Form(False, description="是否为公共文件"),
-    file_chunk: UploadFile = File(..., description="分片文件本体"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        file_md5: str = Form(..., description="文件MD5"),
+        chunk_index: int = Form(..., description="分片索引，从0开始"),
+        total_chunks: int = Form(..., description="总分片数"),
+        chunk_size: int = Form(..., description="当前分片大小（字节）"),
+        total_size: int = Form(..., description="文件总大小（字节）"),
+        file_name: str = Form(..., description="文件名称"),
+        content_type: str = Form(..., description="文件MIME类型"),
+        is_public: bool = Form(False, description="是否为公共文件"),
+        file_chunk: UploadFile = File(..., description="分片文件本体"),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+        redis_client: Redis = Depends(get_redis),
+        minio_client: Minio = Depends(get_minio),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[dict]:
     """分片上传接口（预留逻辑）。"""
 
@@ -45,29 +52,42 @@ def upload_chunk(
         content_type=content_type,
         is_public=is_public,
     )
-    result = FileStorageService(db).upload_chunk(current_user, payload, file_chunk)
+    result = FileStorageService(
+        db,
+        redis_client=redis_client,
+        minio_client=minio_client,
+        rabbitmq_channel=rabbit_channel,
+    ).upload_chunk(current_user, payload, file_chunk)
     return ApiResponse.ok(result)
 
 
 @router.post("/files/upload/complete", response_model=ApiResponse[FileStorageOut])
 def upload_complete(
-    payload: FileUploadCompleteIn,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        payload: FileUploadCompleteIn,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+        redis_client: Redis = Depends(get_redis),
+        minio_client: Minio = Depends(get_minio),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut]:
     """上传完成合并接口（预留逻辑）。"""
 
-    file_obj = FileStorageService(db).complete_upload(current_user, payload)
+    file_obj = FileStorageService(
+        db,
+        redis_client=redis_client,
+        minio_client=minio_client,
+        rabbitmq_channel=rabbit_channel,
+    ).complete_upload(current_user, payload)
     return ApiResponse.ok(FileStorageOut.model_validate(file_obj))
 
 
 @router.get("/files", response_model=ApiResponse[FileListResponse])
 def list_files(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    include_public: bool = Query(True, description="是否包含公共文件"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        include_public: bool = Query(True, description="是否包含公共文件"),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileListResponse]:
     """查询知识库文件列表（分页）。"""
 
@@ -85,9 +105,9 @@ def list_files(
 
 @router.get("/files/public", response_model=ApiResponse[FileListResponse])
 def list_public_files(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    db: Session = Depends(get_db),
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        db: Session = Depends(get_db),
 ) -> ApiResponse[FileListResponse]:
     """查询公共文件列表（分页）。"""
 
@@ -103,9 +123,9 @@ def list_public_files(
 
 @router.get("/files/{file_id}", response_model=ApiResponse[FileStorageOut])
 def get_file_detail(
-    file_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        file_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileStorageOut]:
     """获取文件详情。"""
 
@@ -117,9 +137,9 @@ def get_file_detail(
 
 @router.delete("/files/{file_id}", response_model=ApiResponse[dict])
 def delete_file(
-    file_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+        file_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """删除文件（硬删除）。"""
 

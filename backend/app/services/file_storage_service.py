@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
+from aio_pika.abc import AbstractChannel
+from minio import Minio
+from redis.asyncio import Redis
 
 from app.core.logging import get_logger
 from app.crud.file_storage_crud import FileStorageCRUD
@@ -30,8 +33,24 @@ class FileStorageService:
       fields: total_chunks/total_size/file_name/content_type/is_public/status
     """
 
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        redis_client: Redis | None = None,
+        minio_client: Minio | None = None,
+        rabbitmq_channel: AbstractChannel | None = None,
+    ):
+        """初始化文件服务。
+
+        说明：
+        - 允许通过依赖注入传入 Redis / MinIO / RabbitMQ
+        - 便于在 API 层统一管理资源
+        """
+
         self.db = db
+        self.redis = redis_client
+        self.minio = minio_client
+        self.rabbitmq_channel = rabbitmq_channel
 
     def upload_file(
         self,
@@ -106,6 +125,18 @@ class FileStorageService:
             payload.chunk_index,
         )
 
+        # 示例：记录上传进度（仅示意，不做真实 Redis 操作）
+        if self.redis is not None:
+            logger.debug("Redis 可用：准备记录 bitmap")
+
+        # 示例：MinIO 上传（仅示意）
+        if self.minio is not None:
+            logger.debug("MinIO 可用：准备上传分片到临时桶")
+
+        # 示例：MQ 通知（仅示意）
+        if self.rabbitmq_channel is not None:
+            logger.debug("RabbitMQ 可用：准备发送分片上传事件")
+
         return {
             "file_md5": payload.file_md5,
             "chunk_index": payload.chunk_index,
@@ -139,6 +170,18 @@ class FileStorageService:
             user.id,
             payload.file_md5,
         )
+
+        # 示例：合并前检查 Redis bitmap
+        if self.redis is not None:
+            logger.debug("Redis 可用：准备检查分片完整性")
+
+        # 示例：MinIO 合并
+        if self.minio is not None:
+            logger.debug("MinIO 可用：准备合并分片")
+
+        # 示例：MQ 触发后续处理
+        if self.rabbitmq_channel is not None:
+            logger.debug("RabbitMQ 可用：准备发送向量化任务")
 
         # TODO: 这里仅返回占位文件记录，实际需结合 MinIO/Redis 实现
         return FileStorage(

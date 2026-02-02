@@ -10,9 +10,7 @@ from app import models  # noqa: F401
 from app.core.logging import get_logger, setup_logging
 from app.core.settings import get_settings
 from app.core.middleware import TraceIdMiddleware
-from app.core.redis_client import get_redis_client
-from app.core.rabbitmq_client import get_rabbitmq_connection
-from app.core.minio_client import get_minio_client
+from app.core.providers import InfraProvider
 from app.core.exceptions import (
     http_exception_handler,
     unhandled_exception_handler,
@@ -37,17 +35,13 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
 
-    # 初始化外部服务客户端（依赖注入使用）
-    app.state.redis = get_redis_client()
-    logger.info("Redis 客户端初始化完成")
+    # 初始化外部服务客户端（类似 Spring Bean）
+    logger.info("开始初始化外部服务")
+    app.state.infra = InfraProvider()
+    await app.state.infra.init()
+    health = await app.state.infra.self_check()
+    logger.info("外部服务初始化完成：{}", health)
 
-    app.state.minio = get_minio_client()
-    logger.info("MinIO 客户端初始化完成")
-
-    app.state.rabbitmq = await get_rabbitmq_connection()
-    logger.info("RabbitMQ 客户端初始化完成")
-
-    logger.info("外部服务初始化完成")
     print("\n" + "=" * 60)
     print("📚 API文档: http://localhost:8000/docs")
     print("📖 ReDoc文档: http://localhost:8000/redoc")
@@ -59,13 +53,8 @@ async def lifespan(app: FastAPI):
 
     # 关闭外部服务连接
     try:
-        await app.state.redis.close()
-        logger.info("Redis 客户端连接已关闭")
-    except Exception:
-        pass
-    try:
-        await app.state.rabbitmq.close()
-        logger.info("RabbitMQ 客户端连接已关闭")
+        await app.state.infra.close()
+        logger.info("外部服务连接已关闭")
     except Exception:
         pass
 

@@ -31,6 +31,14 @@ class Settings(BaseSettings):
         - DB_USER=root
         - DB_PASSWORD=root
         - LOG_LEVEL=INFO
+        - REDIS_URL=redis://:password@127.0.0.1:6379/0
+        - MINIO_ENDPOINT=127.0.0.1:9000
+        - MINIO_ACCESS_KEY=minioadmin
+        - MINIO_SECRET_KEY=minioadmin
+        - MINIO_SECURE=false
+        - MINIO_BUCKET_TEMP=upload-temp
+        - MINIO_BUCKET_FINAL=upload-final
+        - RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
     """
 
     model_config = SettingsConfigDict(
@@ -61,6 +69,22 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "DEBUG"
+
+    # Redis (async)
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_MAX_CONNECTIONS: int = 20
+
+    # MinIO (HTTP)
+    MINIO_ENDPOINT: str = "127.0.0.1:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_SECURE: bool = False
+    MINIO_BUCKET_TEMP: str = "upload-temp"
+    MINIO_BUCKET_FINAL: str = "upload-final"
+
+    # RabbitMQ (async)
+    RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
+    RABBITMQ_QUEUE: str = "file_tasks"
 
     def cors_origins_list(self) -> List[str]:
         raw = (self.CORS_ORIGINS or "").strip()

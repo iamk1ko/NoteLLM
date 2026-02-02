@@ -10,6 +10,9 @@ from app import models  # noqa: F401
 from app.core.logging import get_logger, setup_logging
 from app.core.settings import get_settings
 from app.core.middleware import TraceIdMiddleware
+from app.core.redis_client import get_redis_client
+from app.core.rabbitmq_client import get_rabbitmq_connection
+from app.core.minio_client import get_minio_client
 from app.core.exceptions import (
     http_exception_handler,
     unhandled_exception_handler,

@@ -36,6 +36,7 @@ def test_connect_redis():
 
     async def _ping():
         client = redis.from_url(redis_url, decode_responses=True)
+        print("\nRedis client created:", client)
         try:
             return await client.ping()
         finally:
@@ -68,7 +69,7 @@ def test_connect_minio():
     client = Minio(
         endpoint, access_key=access_key, secret_key=secret_key, secure=secure
     )
-    print("MinIO client created:", client)
+    print("\nMinIO client created:", client)
     # list_buckets will raise if connection/auth fails
     buckets = client.list_buckets()
     assert buckets is not None
@@ -93,6 +94,7 @@ def test_connect_rabbitmq():
         connection = await aio_pika.connect_robust(rabbit_url)
         try:
             channel = await connection.channel()
+            print("\nRabbitMQ channel created:", channel)
             await channel.close()
             return True
         finally:

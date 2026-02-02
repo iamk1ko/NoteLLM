@@ -39,6 +39,14 @@ class Settings(BaseSettings):
         - MINIO_BUCKET_TEMP=upload-temp
         - MINIO_BUCKET_FINAL=upload-final
         - RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
+
+    常见坑位说明（MySQL）:
+      - 如果你使用的是 MySQL 8.x，且用户认证插件是默认的 caching_sha2_password/sha256_password，
+        那么 pymysql 需要额外安装 cryptography，否则在首次连接时会报：
+        RuntimeError: 'cryptography' package is required...
+      - 两种解决思路：
+        1) 推荐：在 Python 依赖里安装 cryptography（本项目已在 pyproject.toml 中声明）。
+        2) 备选：把 MySQL 用户认证插件改成 mysql_native_password（需要 DBA 权限；不建议生产随意改）。
     """
 
     model_config = SettingsConfigDict(

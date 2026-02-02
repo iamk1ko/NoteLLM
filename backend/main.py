@@ -36,6 +36,18 @@ async def lifespan(app: FastAPI):
     logger.info("应用启动，开始初始化数据库表")
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
+
+    # 初始化外部服务客户端（依赖注入使用）
+    app.state.redis = get_redis_client()
+    logger.info("Redis 客户端初始化完成")
+
+    app.state.minio = get_minio_client()
+    logger.info("MinIO 客户端初始化完成")
+
+    app.state.rabbitmq = await get_rabbitmq_connection()
+    logger.info("RabbitMQ 客户端初始化完成")
+
+    logger.info("外部服务初始化完成")
     print("\n" + "=" * 60)
     print("📚 API文档: http://localhost:8000/docs")
     print("📖 ReDoc文档: http://localhost:8000/redoc")
@@ -44,6 +56,18 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("应用关闭，释放数据库连接")
     engine.dispose()
+
+    # 关闭外部服务连接
+    try:
+        await app.state.redis.close()
+        logger.info("Redis 客户端连接已关闭")
+    except Exception:
+        pass
+    try:
+        await app.state.rabbitmq.close()
+        logger.info("RabbitMQ 客户端连接已关闭")
+    except Exception:
+        pass
 
 
 app = FastAPI(

@@ -12,8 +12,9 @@ dependencies = [
     "pydantic-settings>=2.7.1",
     "loguru>=0.7.3",
     "sqlalchemy>=2.0.0",
-    "alembic>=1.13.0",
     "pymysql>=1.1.0",
+    # MySQL8 默认认证插件（caching_sha2_password/sha256_password）在 PyMySQL 下需要 cryptography
+    "cryptography>=42.0.0",
     "redis>=5.0.0",
     "aio-pika>=9.4.0",
     "minio>=7.2.0",

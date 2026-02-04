@@ -8,13 +8,15 @@ from enum import IntEnum
 
 from app.core.db import Base
 
+
 class FileChunksStatus(IntEnum):
-    """文件状态枚举：0-上传中，1-已上传，2-已合并，3-失败/删除"""
+    """分片状态枚举：0-上传中，1-已上传，2-已合并，3-失败"""
 
     UPLOADING = 0
     UPLOADED = 1
-    EMERGED = 2
+    MERGED = 2
     FAILED = 3
+
 
 class FileChunks(Base):
     """文件分片表（file_chunks）。

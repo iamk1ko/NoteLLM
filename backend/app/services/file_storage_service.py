@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
+import hashlib
+import io
 
 from sqlalchemy.orm import Session
 from aio_pika.abc import AbstractChannel
@@ -8,11 +11,13 @@ from minio import Minio
 from redis.asyncio import Redis
 
 from app.core.logging import get_logger
+from app.core.settings import get_settings
 from app.crud.file_storage_crud import FileStorageCRUD
 from app.crud.file_chunks_crud import FileChunksCRUD
 from app.models import FileStorage, User
 from app.models.file_chunks import FileChunksStatus
 from app.models.users import UserRole
+from app.models.file_storage import FileStorageStatus
 from app.schemas.file_storage import (
     FileUploadCreate,
     FileChunkUploadIn,
@@ -117,16 +122,26 @@ class FileStorageService:
             payload.chunk_index,
         )
 
-        # 1) 首片到达时创建 file_storage（status=0 上传中）
+        # 0) 重试计数 key
         # 仅当不存在时创建，避免重复
+        settings = get_settings()
+        temp_bucket = settings.MINIO_BUCKET_TEMP
+        final_bucket = settings.MINIO_BUCKET_FINAL
+
         bitmap_key = f"upload:bitmap:{user.id}:{payload.file_md5}"
         file_storage_meta_key = f"upload:meta:{user.id}:{payload.file_md5}"
+        retry_key = f"upload:retry:{user.id}:{payload.file_md5}:{payload.chunk_index}"
 
-        existing = None
         if self.redis is not None:
             # 用 Redis meta 简单判断是否已有任务
             redis_client = cast(Any, self.redis)
-            existing = await redis_client.hget(file_storage_meta_key, "status")  # 读取该哈希中的 status 字段的值
+            existing = await redis_client.hget(file_storage_meta_key, "status")
+        else:
+            # 没有 Redis 时通过数据库兜底判断是否已有任务
+            existing_obj: FileStorage = FileStorageCRUD.get_file_by_object_name(
+                self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+            )
+            existing = "exists" if existing_obj else None
 
         # 第一片分片到达时创建原始文件元信息到 mysql 中
         if existing is None:
@@ -136,10 +151,12 @@ class FileStorageService:
                 filename=payload.file_name,
                 content_type=payload.content_type,
                 file_size=payload.total_size,
-                bucket_name="upload-temp",  # TODO: 后期可优化为变量，避免硬编码
+                bucket_name=temp_bucket,
                 object_name=f"{payload.file_md5}/{payload.file_name}",
-                is_public=payload.is_public if user.role == UserRole.ADMIN.value else False,
-                status=FileChunksStatus.UPLOADING.value,
+                is_public=payload.is_public
+                if user.role == UserRole.ADMIN.value
+                else False,
+                status=FileStorageStatus.UPLOADING.value,
             )
 
         # 2) 写入分片元信息（状态 0-上传中-UPLOADING）
@@ -149,20 +166,68 @@ class FileStorageService:
             file_md5=payload.file_md5,
             chunk_index=payload.chunk_index,
             chunk_size=payload.chunk_size,
-            bucket_name="upload-temp",
+            bucket_name=temp_bucket,
             object_name=chunk_object_name,
             status=FileChunksStatus.UPLOADING.value,
+            etag=None,  # 初始为空，上传后更新
         )
 
-        # 3) 上传到 MinIO 临时桶（仅示例调用）
+        # 3) 上传到 MinIO 临时桶（含 MD5 计算）
         if self.minio is not None:
-            self.minio.put_object(
-                bucket_name="upload-temp",
-                object_name=chunk_object_name,
-                data=file_chunk.file,  # 实际文件分片主体
-                length=payload.chunk_size,
-                content_type=payload.content_type,
-            )
+            try:
+                chunk_bytes = file_chunk.file.read()
+
+                chunk_md5 = await self._put_object_with_retry(
+                    temp_bucket=temp_bucket,
+                    chunk_object_name=chunk_object_name,
+                    payload=payload,
+                    chunk_bytes=chunk_bytes,
+                    retry_key=retry_key,
+                    max_retries=3,  # 最多重试3次
+                )
+                FileChunksCRUD.update_chunk_etag(
+                    self.db,
+                    payload.file_md5,
+                    payload.chunk_index,
+                    chunk_md5,
+                )
+            except Exception:
+                retry_count = 0
+                if self.redis is not None:
+                    redis_client = cast(Any, self.redis)
+                    retry_count = int(await redis_client.incr(retry_key) or 0)
+
+                # 超过3次重试，则标记 分片和文件 失败
+                if retry_count >= 3:
+                    FileChunksCRUD.update_chunk_status(
+                        self.db,
+                        payload.file_md5,
+                        payload.chunk_index,
+                        FileChunksStatus.FAILED.value,  # 标记分片失败
+                    )
+                    file_obj = FileStorageCRUD.get_file_by_object_name(
+                        self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+                    )
+                    if file_obj:
+                        FileStorageCRUD.update_file_status(
+                            self.db,
+                            file_id=file_obj.id,
+                            status=FileStorageStatus.FAILED.value,  # 标记文件失败
+                        )
+                    if self.redis is not None:
+                        redis_client = cast(Any, self.redis)
+                        await redis_client.hset(
+                            file_storage_meta_key, "status", "failed"  # Redis 中标记文件失败
+                        )
+                    if self.minio is not None:
+                        try:
+                            self.minio.remove_object(temp_bucket, chunk_object_name)  # 清理失败分片对象
+                        except Exception:
+                            logger.exception(
+                                "清理失败分片对象失败：object_name={}",
+                                chunk_object_name,
+                            )
+                raise
 
         # 4) Redis bitmap 标记分片上传成功
         if self.redis is not None:
@@ -221,7 +286,7 @@ class FileStorageService:
                                 ensure_ascii=False,
                             ).encode("utf-8")
                         ),
-                        routing_key="file_tasks",  # TODO: 确认队列名称。后期可优化，避免硬编码。
+                        routing_key=settings.RABBITMQ_QUEUE,
                     )
                 await redis_client.hset(file_storage_meta_key, "status", "merged")
 
@@ -230,6 +295,53 @@ class FileStorageService:
             "chunk_index": payload.chunk_index,
             "uploaded": True,
         }
+
+    async def _put_object_with_retry(
+            self,
+            *,
+            temp_bucket: str,
+            chunk_object_name: str,
+            payload,
+            chunk_bytes: bytes,
+            retry_key: str,
+            max_retries: int = 3,
+    ) -> str:
+        """
+        返回: chunk_md5 (作为 etag)
+        说明:
+        - 在同一次请求中重试 max_retries 次
+        - 每失败一次就把 Redis 的 retry_key +1
+        - 超过阈值抛出最后一次异常
+        """
+        chunk_md5 = hashlib.md5(chunk_bytes).hexdigest()
+
+        last_exc: Exception | None = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.minio.put_object(
+                    bucket_name=temp_bucket,
+                    object_name=chunk_object_name,
+                    data=io.BytesIO(chunk_bytes),
+                    length=len(chunk_bytes),
+                    content_type=payload.content_type,
+                )
+                return chunk_md5
+            except Exception as exc:
+                last_exc = exc
+
+                retry_count = attempt
+                if self.redis is not None:
+                    redis_client = cast(Any, self.redis)
+                    retry_count = await redis_client.incr(retry_key)
+
+                # 简单退避: 0.2s, 0.4s, 0.8s ...
+                if retry_count < max_retries:
+                    await asyncio.sleep(0.2 * (2 ** (retry_count - 1)))
+                    continue
+
+                raise
+
+        raise last_exc  # 理论上到不了
 
     async def complete_upload(
             self,

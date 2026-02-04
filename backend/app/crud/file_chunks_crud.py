@@ -21,19 +21,23 @@ class FileChunksCRUD:
 
     @staticmethod
     def create_chunk(
-            db: Session,
-            file_md5: str,
-            chunk_index: int,
-            chunk_size: int,
-            bucket_name: str,
-            object_name: str,
-            etag: str | None = None,
-            status: int = 0,
+        db: Session,
+        file_md5: str,
+        chunk_index: int,
+        chunk_size: int,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+        status: int = 0,
     ) -> FileChunks:
         """创建分片记录（状态默认 0-上传中）。"""
 
+        existing = FileChunksCRUD.get_chunk(db, file_md5, chunk_index)
+        if existing:
+            return existing
+
         chunk = FileChunks(
-            # file_id=None, # TODO: 原本设想 `所属文件ID（合并成功后回填）`。但是实际合并后，所有分片直接删除，根本不会用到这个字段，待优化。
+            # file_id=None, # NOTE: 原本设想 `所属文件ID（合并成功后回填）`。但是实际合并后，所有分片直接删除，根本不会用到这个字段，待优化。
             file_md5=file_md5,
             chunk_index=chunk_index,
             chunk_size=chunk_size,
@@ -48,8 +52,33 @@ class FileChunksCRUD:
         return chunk
 
     @staticmethod
+    def get_chunk(db: Session, file_md5: str, chunk_index: int) -> FileChunks | None:
+        """获取指定分片记录。"""
+
+        return db.scalar(
+            select(FileChunks).where(
+                and_(
+                    FileChunks.file_md5 == file_md5,
+                    FileChunks.chunk_index == chunk_index,
+                )
+            )
+        )
+
+    @staticmethod
+    def update_chunk_etag(
+        db: Session, file_md5: str, chunk_index: int, etag: str
+    ) -> None:
+        """更新分片的 ETag/MD5。"""
+
+        chunk = FileChunksCRUD.get_chunk(db, file_md5, chunk_index)
+        if not chunk:
+            return
+        chunk.etag = etag
+        db.commit()
+
+    @staticmethod
     def update_chunk_status(
-            db: Session, file_md5: str, chunk_index: int, status: int
+        db: Session, file_md5: str, chunk_index: int, status: int
     ) -> None:
         """更新分片状态。"""
 
@@ -80,10 +109,10 @@ class FileChunksCRUD:
         """统计分片数量。"""
 
         return (
-                db.scalar(
-                    select(func.count(FileChunks.id)).where(FileChunks.file_md5 == file_md5)
-                )
-                or 0
+            db.scalar(
+                select(func.count(FileChunks.id)).where(FileChunks.file_md5 == file_md5)
+            )
+            or 0
         )
 
     @staticmethod

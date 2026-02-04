@@ -4,8 +4,19 @@ from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
-
+from enum import StrEnum, IntEnum
 from app.core.db import Base
+
+
+class UserRole(StrEnum):
+    USER = "user"
+    ADMIN = "admin"
+
+
+class UserStatus(IntEnum):
+    ACTIVE = 1
+    DISABLED = 2
+    DELETED = 3
 
 
 class User(Base):
@@ -70,7 +81,7 @@ class User(Base):
     # 角色字段
     role: Mapped[str] = mapped_column(
         String(20),
-        default="user",
+        default=UserRole.USER.value,
         nullable=False,
         comment="用户角色：user-普通用户，admin-管理员",
     )
@@ -78,7 +89,7 @@ class User(Base):
     # 状态字段（与 DDL 对齐）
     status: Mapped[int] = mapped_column(
         Integer,
-        default=1,
+        default=UserStatus.ACTIVE.value,
         nullable=False,
         comment="用户状态：1-正常，2-禁用，3-删除",
     )

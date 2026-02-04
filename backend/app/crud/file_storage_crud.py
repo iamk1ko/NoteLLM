@@ -53,15 +53,16 @@ class FileStorageCRUD:
 
     @staticmethod
     def create_file(
-        db: Session,
-        user_id: int,
-        filename: str,
-        content_type: str,
-        file_size: int,
-        bucket_name: str,
-        object_name: str,
-        etag: str | None = None,
-        is_public: bool = False,
+            db: Session,
+            user_id: int,
+            filename: str,
+            content_type: str,
+            file_size: int,
+            bucket_name: str,
+            object_name: str,
+            etag: str | None = None,
+            is_public: bool = False,
+            status: int = 1,
     ) -> FileStorage:
         """创建文件存储记录。
 
@@ -95,7 +96,8 @@ class FileStorageCRUD:
             object_name=object_name,
             etag=etag,
             is_public=is_public,
-            status=1,
+            status=status,
+            # chat_session_id=None # TODO: 保留字段，暂不使用。用于绑定会话直接上传场景。
         )
 
         db.add(file_storage)
@@ -114,11 +116,11 @@ class FileStorageCRUD:
 
     @staticmethod
     def get_user_files(
-        db: Session,
-        user_id: int,
-        page: int = 1,
-        size: int = 10,
-        include_public: bool = True,
+            db: Session,
+            user_id: int,
+            page: int = 1,
+            size: int = 10,
+            include_public: bool = True,
     ) -> tuple[Sequence[FileStorage], int]:
         """查询用户的文件列表（分页，可包含公共文件）。
 
@@ -203,6 +205,37 @@ class FileStorageCRUD:
         return file
 
     @staticmethod
+    def get_file_by_object_name(
+            db: Session, user_id: int, object_name: str
+    ) -> FileStorage | None:
+        """通过对象名称查询文件记录。"""
+
+        return db.scalar(
+            select(FileStorage).where(
+                FileStorage.user_id == user_id,
+                FileStorage.object_name == object_name,
+            )
+        )
+
+    @staticmethod
+    def update_file_upload_complete(
+            db: Session,
+            file_id: int,
+            bucket_name: str,
+            object_name: str,
+            status: int,
+    ) -> None:
+        """更新文件合并后的存储信息与状态。"""
+
+        file_obj = db.get(FileStorage, file_id)
+        if not file_obj:
+            return
+        file_obj.bucket_name = bucket_name
+        file_obj.object_name = object_name
+        file_obj.status = status
+        db.commit()
+
+    @staticmethod
     def get_user_file(db: Session, file_id: int, user_id: int) -> FileStorage | None:
         """获取用户的文件（带权限检查）。
 
@@ -236,7 +269,7 @@ class FileStorageCRUD:
 
     @staticmethod
     def get_public_files(
-        db: Session, page: int = 1, size: int = 10
+            db: Session, page: int = 1, size: int = 10
     ) -> tuple[Sequence[FileStorage], int]:
         """查询公共文件列表（分页）。
 
@@ -264,15 +297,15 @@ class FileStorageCRUD:
 
         # 查询总数
         total = (
-            db.scalar(
-                select(func.count(FileStorage.id)).where(
-                    and_(
-                        FileStorage.is_public == True,
-                        FileStorage.status == 1,
+                db.scalar(
+                    select(func.count(FileStorage.id)).where(
+                        and_(
+                            FileStorage.is_public == True,
+                            FileStorage.status == 1,
+                        )
                     )
                 )
-            )
-            or 0
+                or 0
         )
 
         # 分页查询
@@ -288,7 +321,7 @@ class FileStorageCRUD:
 
     @staticmethod
     def update_file_status(
-        db: Session, file_id: int, status: int
+            db: Session, file_id: int, status: int
     ) -> FileStorage | None:
         """更新文件状态。
 

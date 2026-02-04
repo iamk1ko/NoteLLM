@@ -4,9 +4,17 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, BigInteger, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
+from enum import IntEnum
 
 from app.core.db import Base
 
+class FileChunksStatus(IntEnum):
+    """文件状态枚举：0-上传中，1-已上传，2-已合并，3-失败/删除"""
+
+    UPLOADING = 0
+    UPLOADED = 1
+    EMERGED = 2
+    FAILED = 3
 
 class FileChunks(Base):
     """文件分片表（file_chunks）。
@@ -45,7 +53,7 @@ class FileChunks(Base):
     )
     status: Mapped[int] = mapped_column(
         Integer,
-        default=1,
+        default=FileChunksStatus.UPLOADING.value,
         nullable=False,
         comment="分片状态：0-上传中，1-已上传，2-已合并，3-失败",
     )

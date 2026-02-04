@@ -130,3 +130,81 @@ async def lifespan(app: FastAPI):
 此外，使用”Base.metadata.create_all(bind=engine)“ 和 ”engine.dispose()“ 是否符合fastapi的最佳实践？
 
 (4) 彻底移除 Alembic（清理配置与依赖）
+
+
+[完善后端业务代码]
+分片上传文件:
+    1. 用户通过前端将大文件分片上传到后端。前端会自动将文件切割成多个小片段，并逐个发送到后端（每次调用后端api，前端也会额外传递总切片数和总文件大小数据，方便后端做文件完整性校验）。
+    此外会将总文件的元信息存入到 file_storage 表中，状态设置为上传中（0-上传中）。
+    2. 在redis中使用bitmap记录每个分片的上传状态，方便后续校验和断点续传。以及记录总的分片数量。redis可以用于检查分片是否全部上传完成。全部上传完成后，发送mq消息，消费者再进行文件合并和后续处理。
+    3. 后端接收到每个分片后，先将分片的元信息存储到数据库的 file_chunks 表中（app/models/file_chunks.py），状态设置为上传中（0-上传中）。
+    4. 再存储到 MinIO 的临时桶（upload-temp）中，并在redis的bitmap中标记总的分片数量，再将数据库中的分片状态更新为已上传（1-已上传）。
+        - 注意，若上传过程中出现失败，可以重试上传该分片，设置失败重试操作。仍然失败则返回错误给前端，并且将 file_chunks 分片状态设置为失败（3-失败）。
+    5. 当所有分片都上传完成后，发送 RabbitMQ 消息，通知消费者进行文件合并和后续处理。
+    6. 消费者接收到消息后，从 MinIO 的临时桶中读取所有分片，按顺序合并成完整文件，并将完整文件存储到 MinIO 的正式桶中（file-storage）。
+    7. 更新 file_storage （app/models/file_storage.py）表中的文件状态为可用（1-已上传/可用），并删除临时桶中的分片数据，以及file_chunks中存储的分片元数据。
+
+
+[分片上传业务]
+需要你确认的关键细节（最重要的 6 个点）
+1) file_storage 的写入时机
+   - 你说“在分片上传时就存入 file_storage，status=0”
+   - 我建议在“第一片到达时创建”或“收到 complete 请求时创建”
+   - 你想选择哪种？[我的回答: 在第一片到达时创建。此外解释说明一下在"第一片到达时创建"与"收到 complete 请求时创建"的优缺点]
+2) file_chunks 是否保留历史
+   - 你写“合并成功后删除 file_chunks”
+   - 也可以保留并标记 status=2 已合并（利于审计）
+   - 你确定要删除吗？[我的回答: 合并后删除]
+3) MQ 触发时机
+   - 当 bitmap == total_chunks 时发送
+   - 是否还需要检查：file_chunks 记录数量一致 + file_md5 一致？[我的回答: 需要]
+4) 分片失败的最终处理
+   - 失败超过 N 次 -> 标记失败并清理
+   - N 的默认值（建议 3）
+   - 是否要提供“重新上传整个文件”的方式？[我的回答: N 的默认值为 3。不需要提供“重新上传整个文件”的方式，让用户自己重新发起上传即可。]
+5) 合并后 MD5 校验
+   - 你说强制校验不一致则清理
+   - 校验失败时是否同时回滚 file_storage status（如 status=3 删除/失败）？[我的回答: 是的，校验失败时同时回滚 file_storage status，设置为 status=3 删除/失败]
+6) 正式桶名称
+   - 你前面写 file-storage，在 settings 中是 MINIO_BUCKET_FINAL
+   - 以 .env 配置为准还是固定写死？[我的回答: 暂时不用管，后期再优化]
+---
+建议的具体实现计划（不写代码版）
+阶段 A：数据结构与状态
+- file_storage.status：0上传中 / 1已上传 / 2已向量化 / 3删除
+- file_chunks.status：0上传中 / 1已上传 / 2已合并 / 3失败
+- Redis:
+  - bitmap: upload:bitmap:{user_id}:{file_md5}
+  - meta: upload:meta:{user_id}:{file_md5}
+    包含 total_chunks/total_size/file_name/content_type/is_public/status
+阶段 B：API 行为
+- POST /files/upload/chunk
+  - 先写 file_storage（首次）
+  - 写 file_chunks(status=0)
+  - 上传 MinIO 临时桶
+  - bitmap 设置
+  - file_chunks -> status=1
+  - 若 bitmap 完整 → 发送 MQ
+- MQ 消费者流程（异步）
+  - 检查 bitmap 完整
+  - 读取临时桶分片对象 → compose → 正式桶
+  - 校验 MD5
+  - 更新 file_storage.status=1
+  - 删除临时桶分片
+  - 删除/标记 file_chunks
+---
+下一步我能做的（你确认后开始写代码）
+1) 让 upload_chunk 真正写入 file_storage / file_chunks / redis
+2) 发送 MQ 任务（包含 file_md5、user_id、total_chunks）
+3) 写一个 RabbitMQ consumer（可独立脚本）
+4) 在合并完成后更新状态并清理
+5) 全程中文注释 + 示例
+---
+如果你确认上述 6 个关键点，我就开始进入代码实现阶段。
+你也可以直接回复“按你的建议默认值执行”，我会按以下默认值执行：
+默认值建议：
+- file_storage 在第一片上传时创建
+- file_chunks 合并成功后删除
+- 失败重试 3 次
+- 校验失败 → file_storage.status=3
+- 桶名完全使用 .env 配置

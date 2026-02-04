@@ -24,7 +24,7 @@ router = APIRouter(tags=["files"])
 
 
 @router.post("/files/upload/chunk", response_model=ApiResponse[dict])
-def upload_chunk(
+async def upload_chunk(
         file_md5: str = Form(..., description="文件MD5"),
         chunk_index: int = Form(..., description="分片索引，从0开始"),
         total_chunks: int = Form(..., description="总分片数"),
@@ -52,7 +52,7 @@ def upload_chunk(
         content_type=content_type,
         is_public=is_public,
     )
-    result = FileStorageService(
+    result = await FileStorageService(
         db,
         redis_client=redis_client,
         minio_client=minio_client,
@@ -62,7 +62,7 @@ def upload_chunk(
 
 
 @router.post("/files/upload/complete", response_model=ApiResponse[FileStorageOut])
-def upload_complete(
+async def upload_complete(
         payload: FileUploadCompleteIn,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
@@ -72,7 +72,7 @@ def upload_complete(
 ) -> ApiResponse[FileStorageOut]:
     """上传完成合并接口（预留逻辑）。"""
 
-    file_obj = FileStorageService(
+    file_obj = await FileStorageService(
         db,
         redis_client=redis_client,
         minio_client=minio_client,

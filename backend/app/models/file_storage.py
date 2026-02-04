@@ -9,12 +9,13 @@ from app.core.db import Base
 from enum import IntEnum
 
 
-class FileStatus(IntEnum):
-    """文件状态枚举：0-上传中，1-已上传，2-已嵌入，3-已删除"""
+class FileStorageStatus(IntEnum):
+    """文件状态枚举：0-上传中，1-已上传，2-已向量化，3-失败/删除"""
+
     UPLOADING = 0
     UPLOADED = 1
     EMBEDDED = 2
-    DELETED = 3
+    FAILED = 3
 
 
 class FileStorage(Base):
@@ -113,7 +114,10 @@ class FileStorage(Base):
 
     # 状态字段
     status: Mapped[int] = mapped_column(
-        Integer, default=FileStatus.UPLOADED.value, nullable=False, comment="文件状态：0-上传中，1-已上传，2-已嵌入(向量化)，3-已删除"
+        Integer,
+        default=FileStorageStatus.UPLOADING.value,
+        nullable=False,
+        comment="文件状态：0-上传中，1-已上传，2-已向量化，3-失败",
     )
 
     # 会话关联（保留用于快速创建场景）

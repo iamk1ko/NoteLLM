@@ -30,16 +30,23 @@ class InfraProvider:
     async def init(self) -> None:
         """初始化所有客户端。"""
 
-        self.redis = get_redis_client()
-        self.minio = get_minio_client()
-        self.rabbitmq = await get_rabbitmq_connection()
+        try:
+            self.redis = await get_redis_client()
+        except Exception as e:
+            logger.error(f"初始化 Redis 客户端失败: {e}")
+            self.redis = None
 
-        if self.redis is None:
-            raise RuntimeError("无法初始化 Redis 客户端连接")
-        if self.minio is None:
-            raise RuntimeError("无法初始化 MinIO 客户端连接")
-        if self.rabbitmq is None:
-            raise RuntimeError("无法初始化 RabbitMQ 客户端连接")
+        try:
+            self.minio = get_minio_client()
+        except Exception as e:
+            logger.error(f"初始化 MinIO 客户端失败: {e}")
+            self.minio = None
+
+        try:
+            self.rabbitmq = await get_rabbitmq_connection()
+        except Exception as e:
+            logger.error(f"初始化 RabbitMQ 客户端失败: {e}")
+            self.rabbitmq = None
 
         logger.info("基础设施客户端（Redis、MinIO、RabbitMQ）初始化完成")
 
@@ -95,4 +102,5 @@ class InfraProvider:
         if self.rabbitmq is not None:
             await self.rabbitmq.close()
             logger.info("RabbitMQ 客户端连接已关闭")
+        logger.info("MinIO 客户端连接已关闭（ai说自动会关闭）")
         logger.info("基础设施客户端连接已全部关闭")

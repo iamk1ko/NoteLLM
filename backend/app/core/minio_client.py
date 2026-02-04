@@ -3,6 +3,9 @@ from __future__ import annotations
 from minio import Minio
 
 from app.core.settings import get_settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_minio_client() -> Minio:
@@ -14,12 +17,25 @@ def get_minio_client() -> Minio:
     """
 
     settings = get_settings()
-    return Minio(
-        endpoint=settings.MINIO_ENDPOINT,
-        access_key=settings.MINIO_ACCESS_KEY,
-        secret_key=settings.MINIO_SECRET_KEY,
-        secure=settings.MINIO_SECURE,
-    )
+    minio = Minio(endpoint=settings.MINIO_ENDPOINT, access_key=settings.MINIO_ACCESS_KEY,
+                  secret_key=settings.MINIO_SECRET_KEY, secure=settings.MINIO_SECURE, )
+
+    # 初始化桶, 如果不存在则创建
+    init_minio_buckets(minio)
+
+    return minio
+
+
+def init_minio_buckets(minio_client: Minio) -> None:
+    """初始化 MinIO 桶（如果不存在则创建）。"""
+
+    temp_bucket, final_bucket = get_minio_buckets()
+
+    for bucket_name in (temp_bucket, final_bucket):
+        found = minio_client.bucket_exists(bucket_name)
+        if not found:
+            logger.info(f"MinIO 桶 '{bucket_name}' 不存在，正在创建...")
+            minio_client.make_bucket(bucket_name)
 
 
 def get_minio_buckets() -> tuple[str, str]:

@@ -16,7 +16,8 @@ def get_redis(request: Request) -> Redis:
     - 这里仅取出并返回
     """
 
-    redis_client = getattr(request.app.state, "redis", None)
+    infra = getattr(request.app.state, "infra", None)
+    redis_client = getattr(infra, "redis", None)
     if redis_client is None:
         raise HTTPException(status_code=503, detail="Redis 客户端未初始化")
     return redis_client
@@ -52,7 +53,7 @@ async def get_rabbitmq_channel(
     - 使用完毕后自动关闭
     """
 
-    connection: AbstractRobustConnection = request.app.state.rabbitmq
+    connection: AbstractRobustConnection = get_rabbitmq_connection(request)
     channel = await connection.channel()
     try:
         yield channel

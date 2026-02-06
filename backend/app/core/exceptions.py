@@ -5,10 +5,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.schemas.response import ApiResponse
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 async def validation_exception_handler(
-    request: Request, exc: RequestValidationError
+        request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """处理参数校验错误。
 
@@ -21,6 +24,7 @@ async def validation_exception_handler(
         exc.errors()[0].get("msg", "参数校验失败") if exc.errors() else "参数校验失败"
     )
     payload = ApiResponse.fail(code=1001, message=message)
+    logger.error("参数校验错误: {}", exc.errors())
     return JSONResponse(status_code=422, content=payload.model_dump())
 
 
@@ -33,6 +37,7 @@ async def http_exception_handler(request: Request, exc) -> JSONResponse:
     """
 
     payload = ApiResponse.fail(code=exc.status_code, message=str(exc.detail))
+    logger.error("HTTP异常: {} - {}", exc.status_code, exc.detail)
     return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
 
 
@@ -45,4 +50,5 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """
 
     payload = ApiResponse.fail(code=1000, message="服务器内部错误")
+    logger.error("未捕获异常: {}", exc, exc_info=True)
     return JSONResponse(status_code=500, content=payload.model_dump())

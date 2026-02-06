@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     # 启动后台消费者（类似 Spring 的 @RabbitListener）
     # 注意：如果你使用多 worker（例如 gunicorn/uvicorn --workers>1），每个 worker 都会启动一个监听器。
     # 生产环境通常将 worker 与 web 服务解耦：单独起一个 consumer 进程更稳。
-    listener_task = start_file_merge_listener(app)
+    file_merge_task = start_file_merge_listener(app)
 
     print("\n" + "=" * 60)
     print("📚 API文档: http://localhost:8000/docs")
@@ -63,9 +63,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # 优雅停止后台监听器
-    listener_task.cancel()
+    file_merge_task.cancel()
     try:
-        await listener_task
+        await file_merge_task
     except asyncio.CancelledError:
         # 正常：我们主动 cancel 了任务，属于预期行为
         pass

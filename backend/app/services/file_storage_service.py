@@ -386,7 +386,7 @@ class FileStorageService:
         - 后续需要结合 MinIO/Milvus/LangChain 进行分块和向量化
 
         示例流程（思路）：
-        1. 从 MinIO 下载文件内容
+        1. 从 MinIO 流式读取文件内容，避免 full read。
         2. 按混合策略分块（固定大小 + 语义 + 重叠）
         3. 将分块写入 file_chunks 表
         4. 调用 embedding 模型生成向量

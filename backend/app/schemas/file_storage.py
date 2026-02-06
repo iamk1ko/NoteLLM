@@ -20,30 +20,20 @@ class FileStorageBase(BaseModel):
     is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")
 
 
-class FileUploadCreate(FileStorageBase):
-    """文件上传创建模型。
+class FileSaveDTO(BaseModel):
+    """文件保存数据传输对象。
 
-    使用示例：
-        ```python
-        # 上传私有文件（默认）
-        private_file = FileUploadCreate(
-            filename="document.pdf",
-            content_type="application/pdf",
-            file_size=1024000,
-            is_public=False
-        )
-
-        # 上传公共文件（管理员操作）
-        public_file = FileUploadCreate(
-            filename="manual.pdf",
-            content_type="application/pdf",
-            file_size=2048000,
-            is_public=True
-        )
-        ```
+    说明：
+    - 用于文件保存操作的数据传输
+    - 包含必要的存储信息
     """
 
-    pass
+    file_name: str = Field(..., max_length=255, description="文件名称")
+    content_type: str = Field(..., max_length=100, description="文件MIME类型")
+    file_md5: str = Field(..., min_length=32, max_length=64, description="文件MD5")
+    file_size: int = Field(..., ge=0, description="文件大小（字节）")
+    is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")
+    status: int = Field(..., description="文件状态：0-上传中，1-已上传，2-已向量化，3-失败")
 
 
 class FileChunkUploadIn(BaseModel):

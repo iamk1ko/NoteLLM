@@ -15,7 +15,7 @@ from app.schemas.file_storage import (
 from app.schemas.response import ApiResponse
 from app.services.file_storage_service import FileStorageService
 from app.crud.file_storage_crud import FileStorageCRUD
-from app.models import User
+from app.models import User, FileStorage
 from aio_pika.abc import AbstractChannel
 from minio import Minio
 from redis.asyncio import Redis
@@ -61,23 +61,24 @@ async def upload_chunk(
     return ApiResponse.ok(result)
 
 
-@router.post("/files/upload/complete", response_model=ApiResponse[FileStorageOut])
-async def upload_complete(
-        payload: FileUploadCompleteIn,
+@router.get("/files/upload/is_complete/{file_id}", response_model=ApiResponse[FileStorageOut])
+async def upload_is_complete(
+        file_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
         redis_client: Redis = Depends(get_redis),
         minio_client: Minio = Depends(get_minio),
         rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut]:
-    """上传完成合并接口（预留逻辑）。"""
+    """TODO: 检查完整文件是否已经完成上传并合并。即数据库中文件状态为 `FileStorageStatus.UPLOADED.value` (目前仅是初步设计，还需完善)。
+    """
 
     file_obj = await FileStorageService(
         db,
         redis_client=redis_client,
         minio_client=minio_client,
         rabbitmq_channel=rabbit_channel,
-    ).complete_upload(current_user, payload)
+    ).upload_is_complete(current_user, file_id)
     return ApiResponse.ok(FileStorageOut.model_validate(file_obj))
 
 
@@ -103,6 +104,20 @@ def list_files(
     return ApiResponse.ok(payload)
 
 
+@router.get("/files/{file_id}", response_model=ApiResponse[FileStorageOut])
+def get_file_detail(
+        file_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+) -> ApiResponse[FileStorageOut]:
+    """获取文件详情。"""
+
+    file_obj: FileStorage = FileStorageCRUD.get_user_file(db, file_id, current_user.id)
+    if not file_obj:
+        raise HTTPException(status_code=404, detail="文件不存在或无权限")
+    return ApiResponse.ok(FileStorageOut.model_validate(file_obj))
+
+
 @router.get("/files/public", response_model=ApiResponse[FileListResponse])
 def list_public_files(
         page: int = Query(1, ge=1, description="页码，从 1 开始"),
@@ -119,20 +134,6 @@ def list_public_files(
         size=size,
     )
     return ApiResponse.ok(payload)
-
-
-@router.get("/files/{file_id}", response_model=ApiResponse[FileStorageOut])
-def get_file_detail(
-        file_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
-) -> ApiResponse[FileStorageOut]:
-    """获取文件详情。"""
-
-    file_obj = FileStorageCRUD.get_user_file(db, file_id, current_user.id)
-    if not file_obj:
-        raise HTTPException(status_code=404, detail="文件不存在或无权限")
-    return ApiResponse.ok(FileStorageOut.model_validate(file_obj))
 
 
 @router.delete("/files/{file_id}", response_model=ApiResponse[dict])

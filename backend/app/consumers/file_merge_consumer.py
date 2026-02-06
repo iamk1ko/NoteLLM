@@ -7,7 +7,7 @@ from minio.commonconfig import ComposeSource
 from typing import Any, cast
 
 from app.core.logging import get_logger
-from app.core.minio_client import get_minio_client, get_minio_buckets
+from app.core.minio_client import get_minio_client
 from app.core.redis_client import get_redis_client
 from app.core.settings import get_settings
 from app.core.rabbitmq_client import get_rabbitmq_connection
@@ -33,7 +33,8 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
     settings = get_settings()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
-    temp_bucket, final_bucket = get_minio_buckets()
+    temp_bucket = settings.MINIO_BUCKET_TEMP
+    final_bucket = settings.MINIO_BUCKET_FINAL
 
     # 获取分片列表
     db = SessionLocal()

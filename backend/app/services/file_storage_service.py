@@ -19,9 +19,8 @@ from app.models.file_chunks import FileChunksStatus
 from app.models.users import UserRole
 from app.models.file_storage import FileStorageStatus
 from app.schemas.file_storage import (
-    FileUploadCreate,
     FileChunkUploadIn,
-    FileUploadCompleteIn,
+    FileUploadCompleteIn, FileSaveDTO,
 )
 
 logger = get_logger(__name__)
@@ -62,26 +61,13 @@ class FileStorageService:
         self.minio = minio_client
         self.rabbitmq_channel = rabbitmq_channel
 
-    def upload_file(
+    def save_file_metadata(
             self,
             user: User,
-            payload: FileUploadCreate,
+            payload: FileSaveDTO,
             bucket_name: str,
-            object_name: str,
-            etag: str | None = None,
     ) -> FileStorage:
-        """上传文件（仅保存元数据）。
-
-        说明：
-        - 这里只保存文件元数据，不处理实际文件上传
-        - 文件内容应先上传到 MinIO，再调用此方法保存元数据
-
-        参数说明：
-        - user: 当前登录用户
-        - payload: 文件元数据
-        - bucket_name: 存储桶名称
-        - object_name: 对象名称
-        - etag: 文件 ETag（可选）
+        """TODO: 上传文件, 目前并未实际使用。有 upload_chunk 替代。后续可以考虑删除。
         """
 
         # 权限控制：普通用户不能上传公共文件
@@ -98,13 +84,14 @@ class FileStorageService:
         return FileStorageCRUD.create_file(
             db=self.db,
             user_id=user.id,
-            filename=payload.filename,
+            filename=payload.file_name,
             content_type=payload.content_type,
             file_size=payload.file_size,
             bucket_name=bucket_name,
-            object_name=object_name,
-            etag=etag,
+            object_name=f"{payload.file_md5}/{payload.file_name}",
+            etag=payload.file_md5,
             is_public=payload.is_public,
+            status=payload.status if user.role == UserRole.ADMIN.value else False,
         )
 
     async def upload_chunk(
@@ -145,19 +132,12 @@ class FileStorageService:
 
         # 第一片分片到达时创建原始文件元信息到 mysql 中
         if existing is None:
-            FileStorageCRUD.create_file(
-                db=self.db,
-                user_id=user.id,
-                filename=payload.file_name,
-                content_type=payload.content_type,
-                file_size=payload.total_size,
-                bucket_name=temp_bucket,
-                object_name=f"{payload.file_md5}/{payload.file_name}",
-                is_public=payload.is_public
-                if user.role == UserRole.ADMIN.value
-                else False,
-                status=FileStorageStatus.UPLOADING.value,
-            )
+            # 初始化文件元信息到数据库
+            file_save_dto = FileSaveDTO(file_name=payload.file_name, content_type=payload.content_type,
+                                        file_md5=payload.file_md5,
+                                        file_size=payload.file_size, is_public=payload.is_public,
+                                        status=FileStorageStatus.UPLOADING.value)
+            self.save_file_metadata(user=user, payload=file_save_dto, bucket_name=temp_bucket)
 
         # 2) 写入分片元信息（状态 0-上传中-UPLOADING）
         chunk_object_name = f"{payload.file_md5}/chunk_{payload.chunk_index:06d}"
@@ -173,6 +153,7 @@ class FileStorageService:
         )
 
         # 3) 上传到 MinIO 临时桶（含 MD5 计算）
+        chunk_md5 = None
         if self.minio is not None:
             try:
                 chunk_bytes = file_chunk.file.read()
@@ -191,7 +172,7 @@ class FileStorageService:
                     payload.chunk_index,
                     chunk_md5,
                 )
-            except Exception:
+            except Exception as exc:
                 retry_count = 0
                 if self.redis is not None:
                     redis_client = cast(Any, self.redis)
@@ -199,6 +180,12 @@ class FileStorageService:
 
                 # 超过3次重试，则标记 分片和文件 失败
                 if retry_count >= 3:
+                    logger.error(
+                        "分片上传失败超过重试次数，标记为失败，并清理相关信息：user_id={}, file_md5={}, chunk_index={}",
+                        user.id,
+                        payload.file_md5,
+                        payload.chunk_index,
+                    )
                     FileChunksCRUD.update_chunk_status(
                         self.db,
                         payload.file_md5,
@@ -224,10 +211,33 @@ class FileStorageService:
                             self.minio.remove_object(temp_bucket, chunk_object_name)  # 清理失败分片对象
                         except Exception:
                             logger.exception(
-                                "清理失败分片对象失败：object_name={}",
+                                "清理 MinIO 中失败分片对象失败：object_name={}",
                                 chunk_object_name,
                             )
-                raise
+                    # 返回失败响应给调用者（API 层需据此返回合适的 HTTP 状态）
+                    return {
+                        "file_md5": payload.file_md5,
+                        "chunk_md5": None,
+                        "chunk_index": payload.chunk_index,
+                        "uploaded": False,
+                        "error": "chunk upload failed after retries",
+                    }
+
+                # 未超过重试阈值：记录并返回局部失败，客户端可重试
+                logger.warning(
+                    "分片上传异常，已增加重试计数：object_name={}, retry_count={}, exc={}",
+                    chunk_object_name,
+                    retry_count,
+                    exc,
+                )
+                return {
+                    "file_md5": payload.file_md5,
+                    "chunk_md5": None,
+                    "chunk_index": payload.chunk_index,
+                    "uploaded": False,
+                    "retry_count": retry_count,
+                    "error": str(exc),
+                }
 
         # 4) Redis bitmap 标记分片上传成功
         if self.redis is not None:
@@ -288,10 +298,11 @@ class FileStorageService:
                         ),
                         routing_key=settings.RABBITMQ_QUEUE,
                     )
-                await redis_client.hset(file_storage_meta_key, "status", "merged")
+                await redis_client.hset(file_storage_meta_key, "status", "merging")  # 标记为合并中
 
         return {
             "file_md5": payload.file_md5,
+            "chunk_md5": chunk_md5,
             "chunk_index": payload.chunk_index,
             "uploaded": True,
         }
@@ -325,6 +336,7 @@ class FileStorageService:
                     length=len(chunk_bytes),
                     content_type=payload.content_type,
                 )
+                logger.info("分片上传成功：object_name={}, 共尝试了 {} 次。", chunk_object_name, attempt)
                 return chunk_md5
             except Exception as exc:
                 last_exc = exc
@@ -337,52 +349,36 @@ class FileStorageService:
                 # 简单退避: 0.2s, 0.4s, 0.8s ...
                 if retry_count < max_retries:
                     await asyncio.sleep(0.2 * (2 ** (retry_count - 1)))
+                    logger.warning("分片上传失败，正在重试：object_name={}, 尝试第 {} 次。", chunk_object_name,
+                                   retry_count)
                     continue
 
                 raise
 
         raise last_exc  # 理论上到不了
 
-    async def complete_upload(
+    async def upload_is_complete(
             self,
             user: User,
-            payload: FileUploadCompleteIn,
-    ) -> FileStorage:
-        """TODO: 合并分片并创建文件记录（业务逻辑占位）。
+            file_id: int
+    ) -> int:
+        """TODO: 查询完整文件是否已经完成上传，目前还是初步设计。
 
         说明：
-        - 仅提供逻辑框架，不做具体实现
-
-        流程（思路）：
-        1. 校验 Redis bitmap 是否完整
-        2. MinIO compose 合并分片
-        3. 校验合并后的 file_md5
-        4. 写入 file_storage，状态为 1（已上传）
-        5. 清理临时桶分片
-        6. 如果校验失败，标记失败并清理所有分片
+        - 若文件已完成上传，返回 FileStorage.status (0-上传中，1-已上传，2-已向量化，3-失败)
+        - 目前仅通过数据库中文件状态进行判断
+        - 后续可结合 Redis 进行更精细的状态管理
         """
 
-        if user.role != UserRole.ADMIN.value:
-            payload.is_public = False
-
         logger.info(
-            "完成上传合并（预留接口）：user_id={}, file_md5={}",
+            "查询文件上传完成状态：user_id={}, file_id={}",
             user.id,
-            payload.file_md5,
+            file_id,
         )
 
-        # 该接口仅作为客户端触发合并的入口，实际合并在 MQ 消费者中完成
-        # 这里返回一个占位对象，后续可根据需要改为真实查询 file_storage
-        return FileStorage(
-            user_id=user.id,
-            filename=payload.file_name,
-            bucket_name="upload-final",
-            object_name=f"{payload.file_md5}/{payload.file_name}",
-            content_type=payload.content_type,
-            file_size=payload.total_chunks,
-            is_public=payload.is_public,
-            status=0,
-        )
+        file_obj: FileStorage = FileStorageCRUD.get_user_file(self.db, file_id, user.id)
+
+        return file_obj.status
 
     def process_file_chunks(self, file_id: int) -> None:
         """TODO: 文件分块处理（预留接口）。

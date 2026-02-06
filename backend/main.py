@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.core.db import Base, engine
+from app.core.db import Base, init_db, get_engine, close_db
 from app.core.logging import get_logger, setup_logging
 from app.core.settings import get_settings
 from app.core.middleware import TraceIdMiddleware
@@ -31,6 +31,11 @@ async def lifespan(app: FastAPI):
     """
 
     logger.info("应用启动，开始初始化数据库表")
+    # 显式初始化 DB（只做一次），避免模块 import 阶段就连库。
+    init_db()
+    engine = get_engine()
+
+    # 建表：学习/演示项目可用。生产环境建议使用 Alembic 做迁移。
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表初始化完成")
 
@@ -47,8 +52,9 @@ async def lifespan(app: FastAPI):
     print("=" * 60 + "\n")
 
     yield
-    logger.info("应用关闭，释放数据库连接")
-    engine.dispose()
+
+    # 优先按统一入口释放 DB 资源
+    close_db()
 
     # 关闭外部服务连接
     try:

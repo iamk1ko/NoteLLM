@@ -40,7 +40,7 @@ def test_connect_redis():
         try:
             return await client.ping()
         finally:
-            await client.close()
+            await client.aclose()
 
     assert asyncio.run(_ping()) is True
 

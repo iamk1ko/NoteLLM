@@ -8,7 +8,7 @@ from redis.asyncio import Redis
 
 from app.core.redis_client import get_redis_client
 from app.core.rabbitmq_client import get_rabbitmq_connection, get_rabbitmq_queue_name
-from app.core.minio_client import get_minio_client, get_minio_buckets
+from app.core.minio_client import get_minio_client, get_minio_buckets, init_minio_buckets
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,16 +28,24 @@ class InfraProvider:
     rabbitmq: AbstractRobustConnection | None = None
 
     async def init(self) -> None:
-        """初始化所有客户端。"""
+        """初始化所有客户端。
+
+        约定：
+        - 这里“创建客户端对象并做必要的自检/初始化”，并把实例挂到 `app.state.infra`。
+        - 注意：不要在模块 import 阶段做这些事（否则会产生导入副作用）。
+        """
 
         try:
-            self.redis = await get_redis_client()
+            # redis.asyncio 客户端创建是同步的，不需要 await。
+            self.redis = get_redis_client()
         except Exception as e:
             logger.error(f"初始化 Redis 客户端失败: {e}")
             self.redis = None
 
         try:
             self.minio = get_minio_client()
+            # 桶初始化是启动阶段的副作用操作：只在这里显式调用一次。
+            init_minio_buckets(self.minio)
         except Exception as e:
             logger.error(f"初始化 MinIO 客户端失败: {e}")
             self.minio = None
@@ -97,10 +105,15 @@ class InfraProvider:
         """关闭所有客户端连接。"""
 
         if self.redis is not None:
-            await self.redis.close()
+            # redis.asyncio 新版推荐使用 aclose()；close() 仍可用但会有 DeprecationWarning。
+            await self.redis.aclose()
             logger.info("Redis 客户端连接已关闭")
+
         if self.rabbitmq is not None:
             await self.rabbitmq.close()
             logger.info("RabbitMQ 客户端连接已关闭")
-        logger.info("MinIO 客户端连接已关闭（ai说自动会关闭）")
+
+        # MinIO Python SDK 是基于 urllib3 的同步客户端，通常不需要显式 close。
+        # 如果未来你改成自建 http pool/client，可以在这里统一关闭。
+        logger.info("MinIO 客户端无需显式关闭（当前实现）")
         logger.info("基础设施客户端连接已全部关闭")

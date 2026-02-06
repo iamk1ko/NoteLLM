@@ -7,7 +7,11 @@ from minio import Minio
 from redis.asyncio import Redis
 
 from app.core.redis_client import get_redis_client
-from app.core.rabbitmq_client import get_rabbitmq_connection, get_rabbitmq_queue_name
+from app.core.rabbitmq_client import (
+    get_rabbitmq_connection,
+    get_rabbitmq_queue_name,
+    close_rabbitmq,
+)
 from app.core.minio_client import get_minio_client, get_minio_buckets, init_minio_buckets
 from app.core.logging import get_logger
 
@@ -51,6 +55,7 @@ class InfraProvider:
             self.minio = None
 
         try:
+            # 使用带缓存的连接获取方法
             self.rabbitmq = await get_rabbitmq_connection()
         except Exception as e:
             logger.error(f"初始化 RabbitMQ 客户端失败: {e}")
@@ -105,13 +110,12 @@ class InfraProvider:
         """关闭所有客户端连接。"""
 
         if self.redis is not None:
-            # redis.asyncio 新版推荐使用 aclose()；close() 仍可用但会有 DeprecationWarning。
             await self.redis.aclose()
             logger.info("Redis 客户端连接已关闭")
 
-        if self.rabbitmq is not None:
-            await self.rabbitmq.close()
-            logger.info("RabbitMQ 客户端连接已关闭")
+        # 统一从 rabbitmq_client 入口关闭（因为连接已做进程内缓存）
+        await close_rabbitmq()
+        self.rabbitmq = None
 
         # MinIO Python SDK 是基于 urllib3 的同步客户端，通常不需要显式 close。
         # 如果未来你改成自建 http pool/client，可以在这里统一关闭。

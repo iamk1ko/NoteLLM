@@ -5,6 +5,8 @@ from aio_pika.abc import AbstractRobustConnection
 
 from app.core.settings import get_settings
 
+RABBITMQ_QUEUE_FILE_TASKS: str = "file_tasks"
+
 
 async def get_rabbitmq_connection() -> AbstractRobustConnection:
     """获取 RabbitMQ 异步连接。
@@ -26,4 +28,4 @@ async def get_rabbitmq_queue_name() -> str:
     - 统一用于文件处理任务
     """
 
-    return get_settings().RABBITMQ_QUEUE
+    return RABBITMQ_QUEUE_FILE_TASKS

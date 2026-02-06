@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.db import Base, engine
-from app import models  # noqa: F401
 from app.core.logging import get_logger, setup_logging
 from app.core.settings import get_settings
 from app.core.middleware import TraceIdMiddleware

@@ -5,8 +5,8 @@ from collections.abc import Sequence
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.crud.user_crud import UserCRUD
-from app.models.users import User
+from app.crud import UserCRUD
+from app.models import User
 
 logger = get_logger(__name__)
 
@@ -33,10 +33,10 @@ class UserService:
         return users
 
     def list_users_page(
-        self,
-        page: int,
-        size: int,
-        keyword: str | None = None,
+            self,
+            page: int,
+            size: int,
+            keyword: str | None = None,
     ) -> tuple[Sequence[User], int]:
         """分页查询用户。
 

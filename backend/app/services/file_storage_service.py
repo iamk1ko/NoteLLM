@@ -1,26 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, cast
 import hashlib
 import io
+from typing import Any, cast
 
-from sqlalchemy.orm import Session
 from aio_pika.abc import AbstractChannel
 from minio import Minio
 from redis.asyncio import Redis
+from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.crud.file_storage_crud import FileStorageCRUD
-from app.crud.file_chunks_crud import FileChunksCRUD
+from app.crud import FileChunksCRUD, FileStorageCRUD
 from app.models import FileStorage, User
-from app.models.file_chunks import FileChunksStatus
+from app.models import FileChunksStatus, FileStorageStatus
 from app.models.users import UserRole
-from app.models.file_storage import FileStorageStatus
 from app.schemas.file_storage import (
     FileChunkUploadIn,
-    FileUploadCompleteIn, FileSaveDTO,
+    FileSaveDTO,
 )
 
 logger = get_logger(__name__)
@@ -296,7 +294,7 @@ class FileStorageService:
                                 ensure_ascii=False,
                             ).encode("utf-8")
                         ),
-                        routing_key=settings.RABBITMQ_QUEUE,
+                        routing_key=settings.RABBITMQ_QUEUE_FILE_TASKS,
                     )
                 await redis_client.hset(file_storage_meta_key, "status", "merging")  # 标记为合并中
 

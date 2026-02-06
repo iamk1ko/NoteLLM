@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.models import User
 
 
@@ -64,7 +62,7 @@ async def get_current_user_optional(request: Request) -> User | None:
 
 
 async def get_current_user(
-    current_user: Annotated[User | None, Depends(get_current_user_optional)],
+        current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> User:
     """获取当前登录用户（必需）。
 
@@ -140,9 +138,9 @@ def require_admin(current_user: Annotated[User, Depends(get_current_user)]) -> U
 
 
 def require_ownership(
-    current_user: Annotated[User, Depends(get_current_user)],
-    owner_id: int | None = None,
-    resource_user_id: int | None = None,
+        current_user: Annotated[User, Depends(get_current_user)],
+        owner_id: int | None = None,
+        resource_user_id: int | None = None,
 ) -> bool:
     """检查资源所有权或管理员权限。
 

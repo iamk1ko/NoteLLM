@@ -7,10 +7,10 @@ from minio.commonconfig import ComposeSource
 from typing import Any, cast
 
 from app.core.logging import get_logger
-from app.core.minio_client import get_minio_client
+from app.core.minio_client import get_minio_client, MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL
 from app.core.redis_client import get_redis_client
 from app.core.settings import get_settings
-from app.core.rabbitmq_client import get_rabbitmq_connection
+from app.core.rabbitmq_client import get_rabbitmq_connection, RABBITMQ_QUEUE_FILE_TASKS
 from app.crud.file_storage_crud import FileStorageCRUD
 from app.crud.file_chunks_crud import FileChunksCRUD
 from app.models.file_storage import FileStorageStatus
@@ -30,11 +30,10 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
     - 删除分片记录与临时对象
     """
 
-    settings = get_settings()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
-    temp_bucket = settings.MINIO_BUCKET_TEMP
-    final_bucket = settings.MINIO_BUCKET_FINAL
+    temp_bucket = MINIO_BUCKET_TEMP
+    final_bucket = MINIO_BUCKET_FINAL
 
     # 获取分片列表
     db = SessionLocal()
@@ -114,10 +113,9 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
 async def main() -> None:
     """RabbitMQ 消费者入口。"""
 
-    settings = get_settings()
     connection = await get_rabbitmq_connection()
     channel = await connection.channel()
-    queue = await channel.declare_queue(settings.RABBITMQ_QUEUE, durable=True)
+    queue = await channel.declare_queue(RABBITMQ_QUEUE_FILE_TASKS, durable=True)
 
     async with queue.iterator() as queue_iter:
         async for message in queue_iter:

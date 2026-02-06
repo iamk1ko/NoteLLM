@@ -7,6 +7,9 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+MINIO_BUCKET_TEMP: str = "upload-temp"  # 临时桶，用于分片上传
+MINIO_BUCKET_FINAL: str = "upload-final"  # 正式桶，用于存储最终文件
+
 
 def get_minio_client() -> Minio:
     """获取 MinIO 客户端。
@@ -17,8 +20,11 @@ def get_minio_client() -> Minio:
     """
 
     settings = get_settings()
-    minio = Minio(endpoint=settings.MINIO_ENDPOINT, access_key=settings.MINIO_ACCESS_KEY,
-                  secret_key=settings.MINIO_SECRET_KEY, secure=settings.MINIO_SECURE, )
+    minio = Minio(endpoint=settings.MINIO_ENDPOINT,
+                  access_key=settings.MINIO_ACCESS_KEY,
+                  secret_key=settings.MINIO_SECRET_KEY,
+                  secure=settings.MINIO_SECURE,
+                  )
 
     # 初始化桶, 如果不存在则创建
     init_minio_buckets(minio)
@@ -44,6 +50,4 @@ def get_minio_buckets() -> tuple[str, str]:
     返回值：
     - (temp_bucket, final_bucket)
     """
-
-    settings = get_settings()
-    return settings.MINIO_BUCKET_TEMP, settings.MINIO_BUCKET_FINAL
+    return MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL

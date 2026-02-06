@@ -32,8 +32,8 @@ from app.models.users import User
 from app.models.chat_session import ChatSession
 from app.models.chat_message import ChatMessage
 from app.models.chat_context import ChatContext
-from app.models.file_storage import FileStorage
-from app.models.file_chunks import FileChunks
+from app.models.file_storage import FileStorage, FileStorageStatus
+from app.models.file_chunks import FileChunks, FileChunksStatus
 from app.models.chat_session_files import ChatSessionFile
 
 __all__ = [
@@ -44,4 +44,6 @@ __all__ = [
     "FileStorage",
     "FileChunks",
     "ChatSessionFile",
+    "FileStorageStatus",
+    "FileChunksStatus",
 ]

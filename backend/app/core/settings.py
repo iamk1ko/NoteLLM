@@ -36,8 +36,6 @@ class Settings(BaseSettings):
         - MINIO_ACCESS_KEY=minioadmin
         - MINIO_SECRET_KEY=minioadmin
         - MINIO_SECURE=false
-        - MINIO_BUCKET_TEMP=upload-temp
-        - MINIO_BUCKET_FINAL=upload-final
         - RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
 
     常见坑位说明（MySQL）:
@@ -87,12 +85,9 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_SECURE: bool = False
-    MINIO_BUCKET_TEMP: str = "upload-temp"  # 临时桶，用于分片上传
-    MINIO_BUCKET_FINAL: str = "upload-final"  # 正式桶，用于存储最终文件
 
     # RabbitMQ (async)
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
-    RABBITMQ_QUEUE: str = "file_tasks"
 
     def cors_origins_list(self) -> List[str]:
         raw = (self.CORS_ORIGINS or "").strip()

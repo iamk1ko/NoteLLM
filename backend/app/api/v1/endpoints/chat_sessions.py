@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.dependencies import get_current_user
+from app.dependencies.auth import get_current_user
 from app.core.logging import get_logger
 from app.models import User
 from app.schemas.chat_session import (

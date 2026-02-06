@@ -5,8 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.crud.chat_session_crud import ChatSessionCRUD
-from app.crud.file_storage_crud import FileStorageCRUD
+from app.crud import ChatSessionCRUD, FileStorageCRUD
 from app.models import ChatSession, User
 from app.schemas.chat_session import ChatSessionCreate, ChatSessionUpdate
 
@@ -49,12 +48,12 @@ class ChatSessionService:
         )
 
     def list_sessions(
-        self,
-        user: User,
-        page: int = 1,
-        size: int = 10,
-        biz_type: str | None = None,
-        query_user_id: int | None = None,
+            self,
+            user: User,
+            page: int = 1,
+            size: int = 10,
+            biz_type: str | None = None,
+            query_user_id: int | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询会话列表（分页）。
 
@@ -104,7 +103,7 @@ class ChatSessionService:
         return ChatSessionCRUD.get_session_file_ids(self.db, session_id)
 
     def update_session(
-        self, user: User, session_id: int, payload: ChatSessionUpdate
+            self, user: User, session_id: int, payload: ChatSessionUpdate
     ) -> ChatSession | None:
         """更新会话信息。
 

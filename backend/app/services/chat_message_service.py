@@ -5,8 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.crud.chat_message_crud import ChatMessageCRUD
-from app.crud.chat_session_crud import ChatSessionCRUD
+from app.crud import ChatMessageCRUD, ChatSessionCRUD
 from app.models import ChatMessage, User
 from app.schemas.chat_message import ChatMessageCreate
 
@@ -26,7 +25,7 @@ class ChatMessageService:
         self.db = db
 
     def send_message(
-        self, user: User, session_id: int, payload: ChatMessageCreate
+            self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> ChatMessage | None:
         """发送消息。
 
@@ -53,16 +52,16 @@ class ChatMessageService:
             session_id=session_id,
             user_id=user.id,
             content=payload.content,
-            role=payload.role, # TODO: RAG 对话系统，发送消息这里只可能是 user，assistant 消息由系统生成在后续业务中创建 message 对象。
+            role=payload.role,  # TODO: RAG 对话系统，发送消息这里只可能是 user，assistant 消息由系统生成在后续业务中创建 message 对象。
             model_name=payload.model_name,
         )
 
     def get_message_history(
-        self,
-        user: User,
-        session_id: int,
-        page: int = 1,
-        size: int = 20,
+            self,
+            user: User,
+            session_id: int,
+            page: int = 1,
+            size: int = 20,
     ) -> tuple[Sequence[ChatMessage], int]:
         """获取消息历史（分页）。
 

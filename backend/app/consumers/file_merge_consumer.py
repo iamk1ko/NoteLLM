@@ -13,9 +13,8 @@ from app.core.redis_client import get_redis_client
 from app.core.rabbitmq_client import get_rabbitmq_connection, RABBITMQ_QUEUE_FILE_TASKS
 from app.core.db import SessionLocal
 
-from app.crud.file_storage_crud import FileStorageCRUD
-from app.crud.file_chunks_crud import FileChunksCRUD
-from app.models.file_storage import FileStorageStatus
+from app.crud import (FileStorageCRUD, FileChunksCRUD)
+from app.models import FileStorageStatus
 
 logger = get_logger(__name__)
 

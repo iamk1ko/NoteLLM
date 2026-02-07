@@ -379,7 +379,7 @@ class FileStorageService:
         return file_obj.status
 
     def process_file_chunks(self, file_id: int) -> None:
-        """TODO: 文件分块处理（预留接口）。
+        """TODO: 文件分块处理（预留接口）。`process_file_chunks`可以改一个更好的名字。参数也可以优化。
 
         说明：
         - 这里只提供思路，不实现具体逻辑
@@ -388,9 +388,8 @@ class FileStorageService:
         示例流程（思路）：
         1. 从 MinIO 流式读取文件内容，避免 full read。
         2. 按混合策略分块（固定大小 + 语义 + 重叠）
-        3. 将分块写入 file_chunks 表
-        4. 调用 embedding 模型生成向量
-        5. 将向量写入 Milvus，并保存 embedding_id
+        3. 调用 embedding 模型生成向量
+        4. 将向量写入 Milvus，并保存 embedding_id
         """
 
         logger.info("开始处理文件分块（预留接口）：file_id={}", file_id)

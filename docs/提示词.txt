@@ -250,3 +250,58 @@ async def lifespan(app: FastAPI):
 - 大文件向量化不需要一次性加载整个对象。
 - 上传分片只解决“传输/存储可靠性”，语义分片应在“逻辑结构层”进行。
 - 解决上下文断裂的最有效办法：滑动窗口 overlap + 结构化切分 + 边界缓冲。
+
+[向量化业务设计]
+目前已近实现了文件的分片上传和合并，接下来需要设计向量化的业务流程。
+1) 当文件分片合并（位于file_merge_consumer中）完成后，发送 RabbitMQ 消息 (RABBITMQ_QUEUE_VECTORIZE_TASKS)，通知消费者(vectorize_consumer.py)进行向量化处理。
+2) 消费者接收到消息后，从 MinIO 的正式桶中流式读取完整文件（避免大文件full read），进行流式解析和语义切分，生成向量并存储到向量数据库中（如 Milvus）。这部分代码写入vectorization_service.py中。
+3) 向量化完成后，更新 file_storage 表中的文件状态为已向量化（2-已向量化）。
+
+可优化的关键点
+- 幂等与去重：向量化消费者必须可重复执行。建议以 file_id + version 或 file_md5 做幂等键，写入前检查 file_storage.status 与 rag_chunks 是否已完成，避免重复向量。
+- 任务状态与恢复：为向量化任务维护独立状态（queued/running/success/failed）和进度游标（页号/offset），支持中断恢复与重试。
+- 切分策略与上下文：不要基于上传分片切分。按页面/段落结构切，再使用滑动窗口 + overlap，避免语义断裂。
+- 流式读取与内存上限：MinIO 使用 stream 或 range read；解析时用小窗口缓存，避免 full read。
+- 失败重试策略：区分“可重试错误”（临时网络/模型超时）与“不可重试错误”（解析失败/格式不支持），避免无限重试。
+- 一致性与事务边界：向量写入与 rag_chunks 落库建议批量提交；任务完成后再更新 file_storage.status=2。
+- 观测与审计：增加关键日志与指标（处理页数/切片数/耗时/失败原因），便于排查与容量评估。
+---
+推荐的业务流程（优化版）
+1. 合并完成 → 发送向量化任务
+   - file_merge_consumer 合并成功后发布消息到 RABBITMQ_QUEUE_VECTORIZE_TASKS
+   - 消息体包含：file_id, file_md5, bucket_name, object_name, content_type
+2. vectorize_consumer 接收任务
+   - 幂等检查：若 file_storage.status==2 或 vector:task:success 直接 ack
+   - 记录任务开始状态（running）
+3. 流式解析 + 语义切分
+   - 解析器按页/段落输出文本流
+   - 切分器按 tokens 进行滑动窗口，保持 overlap
+4. 向量化与落库
+   - 批量生成向量 → 写入向量库（Milvus）
+   - 同步写入 rag_chunks 元数据
+   - 失败时记录 cursor，支持断点恢复
+5. 任务完成
+   - 更新 file_storage.status=2
+   - 设置 vector:task:success
+---
+建议的设计补充（接口与数据）
+- 任务消息字段：file_id, file_md5, bucket_name, object_name, content_type, user_id
+- rag_chunks 元数据：page_no, section, chunk_index, token_count, embedding_id
+- 错误码分类：PARSE_ERROR, VECTORIZE_TIMEOUT, DB_WRITE_FAIL
+---
+下一步执行计划（无代码）
+1. 确认任务幂等策略（基于 file_id 还是 file_md5 + version）
+2. 确认解析器策略（PDF 页级解析 or 多格式统一抽象）
+3. 确认向量库写入模式（批量大小、失败重试策略）
+4. 补充任务状态/游标存储方案（Redis or DB）
+5. 定义向量化任务消息体与状态流转规则
+---
+
+
+下一步执行计划（无代码）
+1. 确认任务幂等策略（基于 file_md5）
+2. 确认解析器策略（PDF 页级解析 or 多格式统一抽象, 这两个有什么区别？）
+3. 确认向量库写入模式（批量大小、失败重试策略）
+4. 补充任务状态/游标存储方案（使用Redis）
+5. 定义向量化任务消息体与状态流转规则
+6. 在 docs/pai_school_ddl.sql 中添加 rag_chunks 表的DDL语句

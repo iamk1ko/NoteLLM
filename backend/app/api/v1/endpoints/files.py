@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.dependencies import get_current_user
-from app.dependencies import get_redis, get_minio, get_rabbitmq_channel
+from app.dependencies import (get_current_user, get_redis, get_minio, get_rabbitmq_channel)
 from app.schemas.file_storage import (
     FileListResponse,
     FileStorageOut,

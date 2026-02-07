@@ -6,6 +6,7 @@ from aio_pika.abc import AbstractRobustConnection
 from app.core.settings import get_settings
 
 RABBITMQ_QUEUE_FILE_TASKS: str = "file_tasks"
+RABBITMQ_QUEUE_VECTORIZE_TASKS: str = "vectorize_tasks"
 
 # 进程内缓存连接：
 # - connect_robust 本身具备自动重连能力

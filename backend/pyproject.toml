@@ -21,6 +21,10 @@ dependencies = [
     "uvicorn>=0.40.0",
     "langchain-openai>=1.1.7",
     "python-multipart>=0.0.22",
+    "pypdf>=4.2.0",
+    "langchain-huggingface>=1.2.0",
+    "pymilvus>=2.6.8",
+    "langchain-text-splitters>=1.1.0",
 ]
 
 [dependency-groups]

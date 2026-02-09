@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
-from typing import Any, cast
+from typing import Any, cast, Coroutine
 
 from aio_pika.abc import AbstractChannel
 from minio import Minio
@@ -11,10 +11,12 @@ from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.core.settings import get_settings
+from app.core.minio_client import MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL
+from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
+from app.core.redis_client import FILE_STORAGE_METADATA_KEY, UPLOAD_FILE_CHUNKS_BITMAP_KEY, UPLOAD_FILE_CHUNKS_RETRY_KEY
 from app.crud import FileChunksCRUD, FileStorageCRUD
-from app.models import FileStorage, User
 from app.models import FileChunksStatus, FileStorageStatus
+from app.models import FileStorage, User
 from app.models.users import UserRole
 from app.schemas.file_storage import (
     FileChunkUploadIn,
@@ -109,13 +111,11 @@ class FileStorageService:
 
         # 0) 重试计数 key
         # 仅当不存在时创建，避免重复
-        settings = get_settings()
-        temp_bucket = settings.MINIO_BUCKET_TEMP
-        final_bucket = settings.MINIO_BUCKET_FINAL
+        temp_bucket = MINIO_BUCKET_TEMP
+        final_bucket = MINIO_BUCKET_FINAL
 
-        bitmap_key = f"upload:bitmap:{user.id}:{payload.file_md5}"
-        file_storage_meta_key = f"upload:meta:{user.id}:{payload.file_md5}"
-        retry_key = f"upload:retry:{user.id}:{payload.file_md5}:{payload.chunk_index}"
+        bitmap_key = UPLOAD_FILE_CHUNKS_BITMAP_KEY.format(user.id, payload.file_md5)
+        file_storage_meta_key = FILE_STORAGE_METADATA_KEY.format(user.id, payload.file_md5)
 
         if self.redis is not None:
             # 用 Redis meta 简单判断是否已有任务
@@ -151,17 +151,16 @@ class FileStorageService:
         )
 
         # 3) 上传到 MinIO 临时桶（含 MD5 计算）
-        chunk_md5 = None
+        chunk_md5, retry_count = None, 0
         if self.minio is not None:
             try:
                 chunk_bytes = file_chunk.file.read()
 
-                chunk_md5 = await self._put_object_with_retry(
+                chunk_md5, retry_count = await self._put_object_with_retry(
                     temp_bucket=temp_bucket,
                     chunk_object_name=chunk_object_name,
                     payload=payload,
                     chunk_bytes=chunk_bytes,
-                    retry_key=retry_key,
                     max_retries=3,  # 最多重试3次
                 )
                 FileChunksCRUD.update_chunk_etag(
@@ -171,11 +170,6 @@ class FileStorageService:
                     chunk_md5,
                 )
             except Exception as exc:
-                retry_count = 0
-                if self.redis is not None:
-                    redis_client = cast(Any, self.redis)
-                    retry_count = int(await redis_client.incr(retry_key) or 0)
-
                 # 超过3次重试，则标记 分片和文件 失败
                 if retry_count >= 3:
                     logger.error(
@@ -202,7 +196,7 @@ class FileStorageService:
                     if self.redis is not None:
                         redis_client = cast(Any, self.redis)
                         await redis_client.hset(
-                            file_storage_meta_key, "status", "failed"  # Redis 中标记文件失败
+                            file_storage_meta_key, "status", FileStorageStatus.FAILED.value  # Redis 中标记文件失败
                         )
                     if self.minio is not None:
                         try:
@@ -261,7 +255,7 @@ class FileStorageService:
 
             # 3) 仅当 status 字段不存在时，初始化为 uploading（避免覆盖 merged）
             #    Redis 的 HSETNX: field 不存在才会写入
-            await redis_client.hsetnx(file_storage_meta_key, "status", "uploading")
+            await redis_client.hsetnx(file_storage_meta_key, "status", FileStorageStatus.UPLOADING.value)
 
         # 5) 更新分片状态为已上传 (UPLOADED)
         FileChunksCRUD.update_chunk_status(
@@ -294,9 +288,8 @@ class FileStorageService:
                                 ensure_ascii=False,
                             ).encode("utf-8")
                         ),
-                        routing_key=settings.RABBITMQ_QUEUE_FILE_TASKS,
+                        routing_key=RABBITMQ_QUEUE_FILE_TASKS,
                     )
-                await redis_client.hset(file_storage_meta_key, "status", "merging")  # 标记为合并中
 
         return {
             "file_md5": payload.file_md5,
@@ -312,16 +305,16 @@ class FileStorageService:
             chunk_object_name: str,
             payload,
             chunk_bytes: bytes,
-            retry_key: str,
             max_retries: int = 3,
-    ) -> str:
+    ) -> tuple[str, int | Any]:
         """
         返回: chunk_md5 (作为 etag)
         说明:
         - 在同一次请求中重试 max_retries 次
-        - 每失败一次就把 Redis 的 retry_key +1
+        - 每失败一次就把 retry_count +1
         - 超过阈值抛出最后一次异常
         """
+        retry_count = 0
         chunk_md5 = hashlib.md5(chunk_bytes).hexdigest()
 
         last_exc: Exception | None = None
@@ -335,15 +328,12 @@ class FileStorageService:
                     content_type=payload.content_type,
                 )
                 logger.info("分片上传成功：object_name={}, 共尝试了 {} 次。", chunk_object_name, attempt)
-                return chunk_md5
+                return chunk_md5, retry_count
             except Exception as exc:
                 last_exc = exc
 
-                retry_count = attempt
-                if self.redis is not None:
-                    redis_client = cast(Any, self.redis)
-                    retry_count = await redis_client.incr(retry_key)
-
+                # 重试次数 +1
+                retry_count += 1
                 # 简单退避: 0.2s, 0.4s, 0.8s ...
                 if retry_count < max_retries:
                     await asyncio.sleep(0.2 * (2 ** (retry_count - 1)))

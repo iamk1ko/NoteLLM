@@ -101,3 +101,35 @@ def test_connect_rabbitmq():
             await connection.close()
 
     assert asyncio.run(_connect()) is True
+
+
+@pytest.mark.integration
+def test_connect_milvus():
+    """Integration test for Milvus connectivity.
+
+    Required env vars:
+      - MILVUS_HOST
+      - MILVUS_PORT
+    """
+
+    host = _env("MILVUS_HOST")
+    port = _env("MILVUS_PORT")
+
+    if not host or not port:
+        pytest.skip("MILVUS_HOST/MILVUS_PORT not set")
+
+    from pymilvus import MilvusClient
+
+    try:
+        client = MilvusClient(
+            uri=f"http://{host}:{port}"
+        )
+        print(f"\n已连接到Milvus服务器: {host}:{port}")
+
+        # 测试连接
+        collections = client.list_collections()
+        print(f"连接成功，当前集合: {collections}")
+
+    except Exception as e:
+        print(f"连接Milvus失败: {e}")
+        raise

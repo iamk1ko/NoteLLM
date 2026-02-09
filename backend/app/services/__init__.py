@@ -15,6 +15,7 @@ __all__ = [
     "ChatMessageService",
     "FileStorageService",
     "UserService",
+    "VectorizationService",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -22,6 +23,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "ChatMessageService": "app.services.chat_message_service:ChatMessageService",
     "FileStorageService": "app.services.file_storage_service:FileStorageService",
     "UserService": "app.services.users_service:UserService",
+    "VectorizationService": "app.services.vectorization_service:VectorizationService",
 }
 
 
@@ -46,3 +48,4 @@ if TYPE_CHECKING:
     from app.services.chat_message_service import ChatMessageService
     from app.services.file_storage_service import FileStorageService
     from app.services.users_service import UserService
+    from app.services.vectorization_service import VectorizationService

@@ -28,6 +28,7 @@ __all__ = [
     "ChatSessionFile",
     "FileStorageStatus",
     "FileChunksStatus",
+    "RagChunks",
 ]
 
 # 懒加载映射：name -> "module_path:attr_name"
@@ -42,6 +43,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "FileChunks": "app.models.file_chunks:FileChunks",
     "FileChunksStatus": "app.models.file_chunks:FileChunksStatus",
     "ChatSessionFile": "app.models.chat_session_files:ChatSessionFile",
+    "RagChunks": "app.models.rag_chunks:RagChunks",
 }
 
 
@@ -76,4 +78,4 @@ if TYPE_CHECKING:
     from app.models.file_storage import FileStorage, FileStorageStatus
     from app.models.file_chunks import FileChunks, FileChunksStatus
     from app.models.chat_session_files import ChatSessionFile
-
+    from app.models.rag_chunks import RagChunks

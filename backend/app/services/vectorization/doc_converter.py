@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import shutil
 from shutil import which
 
 
 class DocConverter:
     @staticmethod
-    def to_docx(source_path: str) -> str:
+    def to_docx(source_path: str) -> tuple[str, str]:
         if which("soffice") is None and which("libreoffice") is None:
             raise RuntimeError("LibreOffice is required to convert .doc files")
 
@@ -27,10 +28,12 @@ class DocConverter:
                 command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
         except subprocess.CalledProcessError as exc:
+            shutil.rmtree(output_dir, ignore_errors=True)
             raise RuntimeError("Failed to convert .doc to .docx") from exc
 
         base_name = os.path.splitext(os.path.basename(source_path))[0]
         docx_path = os.path.join(output_dir, f"{base_name}.docx")
         if not os.path.exists(docx_path):
+            shutil.rmtree(output_dir, ignore_errors=True)
             raise RuntimeError("Converted .docx file not found")
-        return docx_path
+        return docx_path, output_dir

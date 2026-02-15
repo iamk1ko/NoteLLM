@@ -25,9 +25,27 @@ FILE_VECTORIZATION_TASK_STATUS:
         - 当向量化任务完成后，状态更新为 `success` 或 `failed`。
         - 在接收到新的向量化请求时，后端可以先检查 Redis 中的状态，如果已经是 `success` 则直接返回结果
 """
-FILE_STORAGE_METADATA_KEY: str = "file_storage:meta:{}:{}"  # 格式化参数：user_id, file_md5
-UPLOAD_FILE_CHUNKS_BITMAP_KEY: str = "upload:bitmap:{}:{}"  # 格式化参数：user_id, file_md5
+FILE_STORAGE_METADATA_KEY: str = (
+    "file_storage:meta:{}:{}"  # 格式化参数：user_id, file_md5
+)
+UPLOAD_FILE_CHUNKS_BITMAP_KEY: str = (
+    "upload:bitmap:{}:{}"  # 格式化参数：user_id, file_md5
+)
 FILE_VECTORIZATION_TASK_STATUS: str = "vector:task:{}"  # 格式化参数：file_md5
+FILE_VECTORIZATION_TASK_ERROR: str = "vector:task:error:{}"  # 格式化参数：file_md5
+FILE_VECTORIZATION_TASK_STAGE: str = "vector:task:stage:{}"  # 格式化参数：file_md5
+FILE_VECTORIZATION_TASK_ERROR_CODE: str = (
+    "vector:task:error:code:{}"  # 格式化参数：file_md5
+)
+FILE_VECTORIZATION_TASK_ERROR_MESSAGE: str = (
+    "vector:task:error:message:{}"  # 格式化参数：file_md5
+)
+FILE_VECTORIZATION_TASK_RETRYABLE: str = (
+    "vector:task:retryable:{}"  # 格式化参数：file_md5
+)
+FILE_VECTORIZATION_TASK_UPDATED_AT: str = (
+    "vector:task:updated_at:{}"  # 格式化参数：file_md5
+)
 
 
 def get_redis_client() -> Redis:

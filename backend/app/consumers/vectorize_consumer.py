@@ -23,6 +23,7 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
     db = SessionLocal()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
+    file_md5 = "unknown"
     try:
         file_id = int(payload["file_id"])
         file_md5 = payload["file_md5"]
@@ -30,7 +31,9 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
         object_name = payload["object_name"]
         content_type = payload.get("content_type") or ""
 
-        task_status = await redis_client.get(FILE_VECTORIZATION_TASK_STATUS.format(file_md5))
+        task_status = await redis_client.get(
+            FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
+        )
         if task_status == "success":
             logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
             return
@@ -56,6 +59,8 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
             object_name=object_name,
             content_type=content_type,
         )
+    except Exception as e:
+        logger.error("向量化任务消费失败：file_md5={}, error={}", file_md5, e)
     finally:
         db.close()
 

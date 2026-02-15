@@ -361,3 +361,92 @@ async def lifespan(app: FastAPI):
     目前业务设计是否存在性能瓶颈，是否有优化空间，例如在文件读取、格式解析、文本分块、向量化和数据库写入等环节。
     设计并实现完善的错误处理机制，确保在文件读取错误、格式解析错误、向量化失败等场景下系统能够正确处理，并提供有用的错误信息。
     优化代码结构，提升代码的可读性和可维护性，确保各个模块的职责清晰，减少耦合，避免重复代码，并添加必要的日志记录和测试覆盖。
+
+关键问题与风险点
+- 向量化服务耦合度高：VectorizationService 同时负责状态管理、读取、解析、切分、向量化、DB 状态更新和 Milvus 写入，单一职责被打散，导致难以测试与隔离问题。
+- 幂等与重入不完整：cursor 只记录 chunk_index/page_no，无法处理解析策略变化、切分参数变化、模型版本变化等引起的“逻辑不一致”，会造成重复/遗漏。
+- 错误处理与状态不可追踪：仅记录 success/failed/running，没有错误码/错误阶段/可重试标记；缺少失败原因的持久化，排查困难。
+- 资源生命周期有缺口：
+  - DocumentParser 处理 .doc 转 .docx 后未清理临时文件夹。
+  - MinioFileReader 对临时文件使用 NamedTemporaryFile(delete=False)，异常时清理依赖 finally，但解析/转换的临时产物未统一管理。
+- 文本切分的 bug：TextChunker.__init__ 使用了 self.chunk_size = chunk_size | 1000（位运算），在 chunk_size 小于 1000 时会产生错误值；这不是“默认值”的写法。
+- Milvus client 初始化逻辑存在错误：
+  - self.client 和 self.embedding_model 在初始化时未定义却在 _setup_* 中访问；当前实现会抛异常或返回 None。
+  - _setup_milvus_client 判断 self.client is None 但 self.client 还不存在。
+  - _setup_embedding_model 同理。
+- 向量化过程性能瓶颈：
+  - 先完整下载再解析再切分，不利于大文件与内存占用。
+  - chunk_by_title 全量加载后生成 list；每批 flush 仍需要完整 elements 存在内存。
+  - Milvus insert 每 batch 执行、无异步/并发控制，且缺少写入失败重试策略。
+- 结构重复与职责混乱：
+  - VectorizationService._flush_batch 与 MilvusVectorStore.add_documents 都负责“批量写入+日志”，逻辑分散。
+  - vector_store.build_vector_index 和 add_documents 逻辑重复且写入字段长度不一致（4096 vs 2048）。
+- 数据模型/字段不一致：
+  - similarity_search 查询 anns_field 为 "vector"，但 schema 字段是 "dense_vector"/"sparse_vector"。
+  - similarity_search 输出 "text" 字段，但存的是 "content"。
+- Milvus schema/索引行为潜在冲突：
+  - create_collection(force_recreate=True) 每次重建会导致历史数据丢失；在生产任务中不应强制重建。
+  - collection_created 标记未与 load_collection、has_collection、create_collection 统一管理，状态易失真。
+- 异常处理覆盖不足：
+  - minio.stat_object、get_object、partition_*、DocConverter、embedding_model.encode_documents 缺少细粒度异常类型与上下文信息。
+  - 失败时只设置状态 failed，但 DB 文件状态未回滚或标注失败。
+- 日志与可观测性不足：
+  - 缺少关键阶段耗时指标（下载/解析/切分/向量化/写入）。
+  - 缺少 file_id、object_name、content_type 等关键字段一致性输出。
+- 测试覆盖不足：
+  - 各模块不可单元测试（依赖外部服务，无接口抽象/注入）。
+  - 缺少集成测试与失败重试场景测试。
+---
+建议的优化方向
+- 模块边界收敛：拆分成“读取/解析/切分/向量化/存储/状态/编排”七个子组件，VectorizationService 只保留编排逻辑。
+- 任务状态增强：在 Redis 记录 status + stage + error_code + error_message + retryable + updated_at；同时 DB 文件状态记录失败原因。
+- 幂等性与重入：
+  - 将 chunker_config、parser_config、embedding_model_version、file_md5 组成任务指纹。
+  - Redis cursor 中存 task_fingerprint 与 chunk_index，变化即重新执行。
+- 性能优化：
+  - 读取与解析分离为“流式读取 + 临时文件落地 + 解析器按需”的流水线模式。
+  - 统一批大小配置，避免在 add_documents 内部写死 batch size。
+  - 采用 MilvusClient 的批量插入 API + 失败重试/退避。
+- 统一错误处理：
+  - 定义 VectorizationError 体系（读文件/解析/切分/embedding/写入），包含 stage、cause、retryable。
+  - 在消费者层记录错误上下文并更新任务状态与 DB 状态。
+- Milvus 逻辑修复：
+  - 初始化顺序修正；self.client 先实例化再使用。
+  - schema 字段一致性修复（search 输出字段、anns_field）。
+  - 索引创建与集合创建分开、只在首次初始化或显式触发时执行。
+- 临时文件管理：
+  - 统一 TempDir/TempFile 管理器，确保 docx 转换产生的临时目录与文件清理。
+- 可测试性：
+  - 为 Reader/Parser/Chunker/VectorStore 定义接口或抽象基类，便于 mock。
+  - 设计最小集成测试：解析失败/向量化失败/写入失败/重试场景。
+---
+可执行的改进计划（可逐步实施）
+1) 设计阶段性错误模型与状态结构
+- 定义 VectorizationStage 枚举（download/parse/chunk/embed/store)
+- Redis 状态结构增加 status, stage, error_code, error_message, retryable, updated_at
+- DB 文件状态添加失败原因字段或 error_meta JSON
+2) 重构 VectorizationService 为编排层
+- 把读取、解析、切分、向量化、写入抽成独立类或接口
+- 服务只负责调度、批处理、状态更新
+3) 修复明显 bug 与一致性问题
+- TextChunker 的 chunk_size 计算修正
+- MilvusVectorStore 初始化顺序修正
+- similarity_search 的字段与 schema 对齐
+- add_documents 与 schema 字段长度一致
+4) 性能与资源优化
+- 统一 batch 参数
+- 解析/切分流程引入生成器/迭代（能降低峰值内存）
+- 文档转换与解析临时文件统一清理
+5) 完善日志与观测
+- 添加阶段耗时统计
+- 所有日志统一带 file_id/file_md5/object_name/trace_id
+6) 测试与验证
+- 单元测试：Reader/Parser/Chunker/VectorStore
+- 集成测试：完整向量化流程与错误回滚
+---
+如果你希望我继续下一步实现这些改动，请确认优先级：
+1) 先修 bug + 一致性问题
+2) 先做结构重构
+3) 先补错误处理与状态模型
+我建议优先顺序是 1 → 3 → 2。
+告诉我你的选择即可。

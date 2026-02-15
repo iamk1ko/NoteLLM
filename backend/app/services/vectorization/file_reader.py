@@ -17,13 +17,16 @@ class FileReadResult:
 class MinioFileReader:
     def __init__(self, minio_client: Minio, memory_threshold_mb: int):
         self.minio = minio_client
-        self.memory_threshold_bytes = max(1, memory_threshold_mb) * 1024 * 1024  # 至少1MB
+        self.memory_threshold_bytes = (
+            max(1, memory_threshold_mb) * 1024 * 1024
+        )  # 至少1MB
 
     def download(self, bucket_name: str, object_name: str) -> FileReadResult:
         stat = self.minio.stat_object(bucket_name, object_name)
         object_size = 0 if stat.size is None else stat.size
         is_small = object_size <= self.memory_threshold_bytes
         obj = self.minio.get_object(bucket_name, object_name)
+        temp_file: tempfile.NamedTemporaryFile | None = None
         try:
             temp_file = tempfile.NamedTemporaryFile(delete=False)
             total_size = 0
@@ -42,6 +45,14 @@ class MinioFileReader:
                 file_size=total_size,
                 is_streamed=not is_small,
             )
+        except Exception:
+            if temp_file is not None:
+                try:
+                    temp_file.close()
+                    os.remove(temp_file.name)
+                except Exception:
+                    pass
+            raise
         finally:
             obj.close()
             obj.release_conn()

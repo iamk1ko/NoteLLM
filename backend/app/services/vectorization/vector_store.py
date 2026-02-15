@@ -1,42 +1,25 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 
 from pymilvus.milvus_client import IndexParams
 
 from app.core.logging import get_logger
+from app.schemas import ChunkRecord
 
 logger = get_logger(__name__)
 
 from pymilvus.model.hybrid.bge_m3 import BGEM3EmbeddingFunction
 from pymilvus import (
     MilvusClient,
-    Collection,
     CollectionSchema,
     DataType,
     FieldSchema,
-    utility,
     connections,
     Function,
     FunctionType
 )
-
-
-@dataclass
-class ChunkRecord:
-    file_id: int
-    file_md5: str
-    chunk_index: int
-    # chunk_text: str
-    # chunk_tokens: int
-    page_no: int | None
-    section: str | None
-    content: str | None
-    sparse_vector: list[float] | None
-    dense_vector: list[float] | None
-    metadata: list[dict[str, str]] | dict[str, str] | None
 
 
 class MilvusVectorStore:
@@ -268,7 +251,7 @@ class MilvusVectorStore:
             # 2. 准备数据
             logger.info("正在生成向量embeddings...")
             texts = [chunk.content for chunk in chunks]
-            vectors = self.embedding_model(texts)
+            vectors = self.embedding_model.encode_documents(texts)
 
             # 3. 准备插入数据
             entities = []
@@ -334,7 +317,7 @@ class MilvusVectorStore:
         try:
             # 生成向量
             texts: list[str] = [chunk.content for chunk in new_chunks]
-            vectors = self.embedding_model(texts)
+            vectors = self.embedding_model.encode_documents(texts)
 
             # 准备插入数据
             entities = []
@@ -345,7 +328,7 @@ class MilvusVectorStore:
                     "chunk_index": chunk.chunk_index,
                     "page_no": chunk.page_no or 0,
                     "section": self._safe_truncate(chunk.section, 255),
-                    "content": self._safe_truncate(chunk.content, 4096),
+                    "content": self._safe_truncate(chunk.content, 2048),
                     "sparse_vector": vector["sparse"],
                     "dense_vector": vector["dense"],
                     "metadata": chunk.metadata or {}
@@ -383,7 +366,7 @@ class MilvusVectorStore:
 
         try:
             # 生成查询向量
-            query_vector = self.embedding_model([query])["dense"][0]
+            query_vector = self.embedding_model.encode_queries([query])["dense"][0]
 
             # 构建过滤表达式
             filter_expr = ""

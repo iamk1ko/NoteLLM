@@ -345,3 +345,19 @@ async def lifespan(app: FastAPI):
 
 请基于以上要求，优化现有代码并设计完整的业务流程，确保系统能够高效、安全、稳定地处理用户上传文件的向量化需求。
 
+[文件RAG分片并向量化存入Milvus的业务设计]
+相关代码文件:
+   - `vectorize_consumer.py`: 消息消费者，接收文件向量化任务消息，调用向量化服务进行处理
+   - `vectorization_service.py`: 向量化服务，包含文件读取(从minio服务中获取临时url)、格式解析(使用unstructured库)、文本分块(使用unstructured库)、向量化(Milvus提供的BGE-M3模型)和Milvus写入等核心逻辑
+   - `backend/app/services/vectorization`: 向量化相关的业务逻辑实现，包括文件读取、格式解析、文本分块、向量化和Milvus写入等功能模块
+   - `backend/app/services/vectorization/document_parser.py`: 文档解析服务，使用unstructured库实现对不同格式文件的解析功能
+   - `backend/app/services/vectorization/file_reader.py`: 文件读取服务，负责从MinIO获取文件的临时URL，并实现流式读取功能
+   - `backend/app/services/vectorization/text_chunker.py`: 文本分块服务，使用unstructured库实现文本的分块功能，支持自定义分块大小和重叠度
+   - `backend/app/services/vectorization/vector_store.py`: 向量存储服务，负责将生成的向量数据写入Milvus数据库，并实现连接管理和索引优化等功能
+
+目前需求:
+    检查目前向量化服务相关的代码实践是否符合最佳实践，并优化代码结构和业务流程设计，确保系统能够高效、安全、稳定地处理用户上传文件的向量化需求。
+    所涉及到的各个功能的模块设计是否合理，是否符合单一职责原则，是否有过度耦合的情况，是否有重复代码需要重构等。
+    目前业务设计是否存在性能瓶颈，是否有优化空间，例如在文件读取、格式解析、文本分块、向量化和数据库写入等环节。
+    设计并实现完善的错误处理机制，确保在文件读取错误、格式解析错误、向量化失败等场景下系统能够正确处理，并提供有用的错误信息。
+    优化代码结构，提升代码的可读性和可维护性，确保各个模块的职责清晰，减少耦合，避免重复代码，并添加必要的日志记录和测试覆盖。

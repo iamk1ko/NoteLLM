@@ -5,10 +5,10 @@ import json
 from minio import Minio
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
+from unstructured.documents.elements import Element
 
 from app.core.logging import get_logger
 from app.crud.file_storage_crud import FileStorageCRUD
-from app.crud.rag_chunks_crud import RagChunksCRUD
 from app.models.file_storage import FileStorageStatus
 from app.services.vectorization import (
     DocumentParser,
@@ -30,8 +30,8 @@ class VectorizationService:
             minio_client: Minio | None = None,
             *,
             memory_threshold_mb: int = 32,
-            chunk_size: int = 768,
-            overlap: int = 120,
+            chunk_size: int = 1000,
+            overlap: int = 200,
             vector_batch_size: int = 64,
             vector_store: MilvusVectorStore | None = None,
     ):
@@ -56,6 +56,27 @@ class VectorizationService:
             object_name: str,
             content_type: str,
     ) -> int:
+        """
+        向量化文件的主流程：
+        1. 检查任务状态，如果已成功完成则跳过。
+        2. 设置任务状态为 running。
+        3. 从 MinIO 下载文件到本地。
+        4. 解析文件内容为 Element 列表。
+        5. 对 Element 列表进行切片，生成 TextChunk。
+        6. 批量将切片记录写入向量数据库和关联表，并更新任务状态中的游标位置。
+        7. 更新文件状态为 EMBEDDED，设置任务状态为 success。
+
+        Args:
+            file_id: 文件ID，对应 file_storage 表的主键。
+            file_md5: 文件的MD5值，用于幂等性检查和任务状态管理。
+            bucket_name: MinIO 存储桶名称。
+            object_name: MinIO 对象名称（文件路径）。
+            content_type: 文件的内容类型（MIME type），用于解析时选择合适的解析器。
+
+        Returns:
+            int: 成功向量化的切片总数。
+        """
+
         # 幂等性检查：如果任务已成功完成，则直接返回
         existing_status = await self.task_state.get_status(file_md5)
         if existing_status == "success":
@@ -77,10 +98,12 @@ class VectorizationService:
         # TODO: 这里的流程还有优化空间。比如可以边下载边解析边切片，减少等待时间。目前的实现是先下载完整文件到本地，再进行解析和切片。
         read_result = self.reader.download(bucket_name, object_name)
         try:
-            elements = self.parser.parse(read_result.file_path, content_type)
+            # parse() 是调用 unstructured 的 partition_pdf()、partition_docx() 或 partition_md() 来解析文件，返回一个 Element 列表。
+            elements: list[Element] = self.parser.parse(read_result.file_path, content_type)
             records: list[ChunkRecord] = []
             chunk_texts: list[str] = []
 
+            # chunk_elements() 是调用 unstructured 的 chunk_by_title() 来对 Element 列表进行合并&切片，返回一个 TextChunk 生成器。每个 TextChunk 包含切片后的文本内容和相关的元数据。
             for chunk in self.chunker.chunk_elements(elements):
                 if chunk.chunk_index <= last_chunk_index:
                     continue
@@ -89,16 +112,16 @@ class VectorizationService:
                     ChunkRecord(
                         file_id=file_id,
                         file_md5=file_md5,
-                        chunk_index=chunk.chunk_index,
-                        page_no=chunk.page_no,
-                        section=chunk.section,
                         content=chunk.chunk_text,
-                        # sparse_vector=[], # 向量在后续批处理中会自动生成并更新
-                        # dense_vector=[],
-                        # metadata={},
+                        chunk_index=chunk.chunk_index,
+                        chunk_size=chunk.chunk_size,
+                        page_no=chunk.metadata.page_number,
+                        section=chunk.metadata.page_title,
+                        metadata=chunk.metadata
                     )
                 )
 
+                # 达到批量处理的阈值后，调用 _flush_batch() 将当前批次的切片记录写入向量数据库和关联表，并更新任务状态中的游标位置。然后清空当前批次的记录和文本列表，继续处理下一批切片。
                 if len(chunk_texts) >= self.vector_batch_size:
                     chunk_total += self._flush_batch(records)
                     await self.task_state.set_cursor(
@@ -130,23 +153,21 @@ class VectorizationService:
             )
             await self.task_state.set_status(file_md5, "success")
             return chunk_total
-        except Exception:
+        except Exception as e:
+            logger.error("向量化任务失败：file_md5={}, error={}", file_md5, e)
             await self.task_state.set_status(file_md5, "failed")
             raise
         finally:
             self.reader.cleanup(read_result.file_path)
 
     def _flush_batch(self, records: list[ChunkRecord]) -> int:
-        # TODO: 这里还有问题。目前 add_documents() 返回但是 bool 值，需要改成返回 embedding_id 列表。方便后续关联到 rag_chunks 表中。
         if self.vector_store is not None:
-            ids = self.vector_store.add_documents(records)
+            if not self.vector_store.add_documents(records):
+                logger.error("当前批量的 RAG 分片写入向量数据库失败，总共 {} 条分片记录", len(records))
+                raise RuntimeError("批量写入向量数据库失败")
+            logger.info("当前批量的 RAG 分片成功写入向量数据库，总共 {} 条分片记录", len(records))
         else:
-            ids = []
+            logger.warning("未配置向量数据库，当前批量的 RAG 分片将不会被写入向量数据库，总共 {} 条分片记录",
+                           len(records))
 
-        RagChunksCRUD.create_chunks(
-            self.db,
-            file_id=records[0].file_id if records else 0,
-            chunks=records,
-            embedding_ids=[str(item) for item in ids],
-        )
         return len(records)

@@ -328,7 +328,7 @@ class FileStorageCRUD:
         参数说明：
         - db: 数据库会话
         - file_id: 文件 ID
-        - status: 文件状态（1-可用，2-已删除，3-禁用）
+        - status: 文件状态（0-上传中，1-已上传，2-已完成向量化，3-失败/删除）
 
         返回值：
         - FileStorage | None: 更新后的文件对象或 None（不存在）

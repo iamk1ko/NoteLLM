@@ -130,29 +130,6 @@ CREATE TABLE `file_chunks`
   COLLATE = utf8mb4_unicode_ci
   ROW_FORMAT = DYNAMIC COMMENT ='文件分片表（file_chunks）';
 
--- 语义切片与向量表（rag_chunks）
-drop table if exists rag_chunks;
-CREATE TABLE `rag_chunks`
-(
-    `id`           BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `file_id`      BIGINT      NOT NULL COMMENT '所属文件ID（file_storage.id）',
-    `chunk_index`  INT         NOT NULL COMMENT '语义切片索引，从0开始',
-    `chunk_text`   MEDIUMTEXT  NOT NULL COMMENT '切片文本内容',
-    `chunk_tokens` INT         NOT NULL COMMENT '切片token数量',
-    `page_no`      INT                  DEFAULT NULL COMMENT '页码（PDF等）',
-    `section`      VARCHAR(255)         DEFAULT NULL COMMENT '章节/标题',
-    `embedding_id` VARCHAR(128)         DEFAULT NULL COMMENT '向量库中的embedding标识',
-    `status`       INT         NOT NULL DEFAULT 1 COMMENT '切片状态：1-有效，2-删除，3-失败',
-    `create_time`  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
-    `update_time`  DATETIME(6)          DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_file_id` (`file_id`),
-    KEY `idx_file_chunk` (`file_id`, `chunk_index`)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_unicode_ci
-  ROW_FORMAT = DYNAMIC COMMENT ='语义切片与向量表（rag_chunks）';
-
 
 -- 会话-文件关联表
 drop table if exists chat_session_files;

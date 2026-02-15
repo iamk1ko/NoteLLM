@@ -1,58 +1,45 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
+from unstructured.chunking.title import chunk_by_title
+from unstructured.documents.elements import Element, ElementType
 
-@dataclass
-class TextChunk:
-    chunk_index: int
-    chunk_text: str
-    chunk_tokens: int
-    page_no: int | None = None
-    section: str | None = None
+from app.schemas import TextChunk, TextChunkMetadata
 
 
 class TextChunker:
     def __init__(self, chunk_size: int, overlap: int):
-        self.chunk_size = chunk_size
+        self.chunk_size = chunk_size | 1000
         self.overlap = min(overlap, max(0, chunk_size - 1))
 
-    def chunk_elements(self, elements: Iterable[object]) -> Iterable[TextChunk]:
-        index = 0
-        for element in elements:
-            text = getattr(element, "text", "") or ""
-            page_no = getattr(element, "page_no", None)
-            section = getattr(element, "section", None)
-            for chunk in self._chunk_text(text, index, page_no, section):
-                yield chunk
-                index += 1
+    def chunk_elements(self, elements: Iterable[Element]) -> Iterable[TextChunk]:
+        chunks: list[Element] = chunk_by_title(elements=elements, max_characters=self.chunk_size, overlap=self.overlap)
+        for index, chunk in enumerate(chunks):
+            orig_elements: list[Element] = chunk.metadata.orig_elements  # 构成 CompositeElement 的所有原始元素列表
+            chunk_id = chunk.id
+            chunk_index = index
+            text = chunk.text.strip()
 
-    def _chunk_text(
-        self,
-        text: str,
-        start_index: int,
-        page_no: int | None,
-        section: str | None,
-    ) -> Iterable[TextChunk]:
-        words = text.split()
-        if not words:
-            return
+            page_titles = [orig.text.strip() for orig in orig_elements if
+                           orig.category == ElementType.TITLE] if orig_elements else []
+            image_urls = [orig.metadata.image_url for orig in orig_elements if
+                          orig.category == ElementType.IMAGE] if orig_elements else []
 
-        index = start_index
-        start = 0
-        while start < len(words):
-            end = min(start + self.chunk_size, len(words))
-            chunk_words = words[start:end]
-            chunk_text = " ".join(chunk_words)
+            metadata: TextChunkMetadata = TextChunkMetadata(
+                file_directory=chunk.metadata.file_directory,
+                filename=chunk.metadata.filename,
+                filetype=chunk.metadata.filetype,
+                page_number=chunk.metadata.page_number,
+                page_title=page_titles[0] if page_titles else None,
+                image_urls=image_urls if image_urls else None,
+                last_modified=chunk.metadata.last_modified,
+            ) if chunk.metadata else None
+
             yield TextChunk(
-                chunk_index=index,
-                chunk_text=chunk_text,
-                chunk_tokens=len(chunk_words),
-                page_no=page_no,
-                section=section,
+                chunk_id=chunk_id,
+                chunk_index=chunk_index,
+                chunk_text=text,
+                chunk_size=len(text.split()),
+                metadata=metadata,
             )
-            index += 1
-            if end == len(words):
-                break
-            start = max(0, end - self.overlap)

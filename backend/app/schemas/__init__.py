@@ -40,6 +40,10 @@ __all__ = [
     "UserOut",
     "UserListResponse",
     "SimpleResponse",
+    # 向量化相关
+    "TextChunkMetadata",
+    "TextChunk",
+    "ChunkRecord",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -69,6 +73,10 @@ _LAZY_IMPORTS: dict[str, str] = {
     "UserOut": "app.schemas.users:UserOut",
     "UserListResponse": "app.schemas.users:UserListResponse",
     "SimpleResponse": "app.schemas.users:SimpleResponse",
+    # vectorization
+    "TextChunkMetadata": "app.schemas.vectorization:TextChunkMetadata",
+    "TextChunk": "app.schemas.vectorization:TextChunk",
+    "ChunkRecord": "app.schemas.vectorization:ChunkRecord",
 }
 
 
@@ -118,4 +126,9 @@ if TYPE_CHECKING:
         UserOut,
         UserListResponse,
         SimpleResponse,
+    )
+    from app.schemas.vectorization import (
+        TextChunkMetadata,
+        TextChunk,
+        ChunkRecord,
     )

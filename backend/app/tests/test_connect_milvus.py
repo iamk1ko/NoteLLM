@@ -69,7 +69,7 @@ def test_milvus_bgem3_embedding():
     docs_embeddings = bge_m3_ef.encode_documents(docs)
 
     # 打印嵌入向量
-    print("Embeddings:", docs_embeddings)
+    print("Embeddings:", docs_embeddings.keys())
     # 打印密集嵌入向量的维度
     print("Dense document dim:", bge_m3_ef.dim["dense"], docs_embeddings["dense"][0].shape)
     # 由于稀疏嵌入向量是 2D csr_array 格式，我们将其转换为列表以便于操作。

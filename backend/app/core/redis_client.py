@@ -19,7 +19,7 @@ UPLOAD_FILE_CHUNKS_BITMAP_KEY:
         - 每当一个分片上传成功后，后端就将对应 Bitmap 位设置为 1。
         - 在合并分片之前，后端可以检查 Bitmap 来确认所有分片是否都已上传完成。
         
-FILE_VECTORIZATION_KEY:
+FILE_VECTORIZATION_TASK_STATUS:
     用于记录文件向量化任务的状态，避免重复向量化同一文件。例如：
         - 当一个文件上传完成后，后端会将对应的向量化任务状态设置为 `running`。
         - 当向量化任务完成后，状态更新为 `success` 或 `failed`。
@@ -27,7 +27,7 @@ FILE_VECTORIZATION_KEY:
 """
 FILE_STORAGE_METADATA_KEY: str = "file_storage:meta:{}:{}"  # 格式化参数：user_id, file_md5
 UPLOAD_FILE_CHUNKS_BITMAP_KEY: str = "upload:bitmap:{}:{}"  # 格式化参数：user_id, file_md5
-FILE_VECTORIZATION_KEY: str = "vector:task:{}"  # 格式化参数：file_md5
+FILE_VECTORIZATION_TASK_STATUS: str = "vector:task:{}"  # 格式化参数：file_md5
 
 
 def get_redis_client() -> Redis:

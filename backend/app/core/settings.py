@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     # RabbitMQ (async)
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
 
+    # Vectorization settings
+    # EMBEDDING_PROVIDER: str = "openai"
+    # EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1024
+    VECTOR_COLLECTION: str = "knowledge_base"
+    VECTOR_BATCH_SIZE: int = 64
+    VECTOR_MEMORY_THRESHOLD_MB: int = 32
+    MILVUS_URI: str = "http://localhost:19530"
+
     def cors_origins_list(self) -> List[str]:
         raw = (self.CORS_ORIGINS or "").strip()
         if not raw:

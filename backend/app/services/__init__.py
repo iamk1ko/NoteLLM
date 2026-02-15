@@ -16,6 +16,10 @@ __all__ = [
     "FileStorageService",
     "UserService",
     "VectorizationService",
+    "DocumentParser",
+    "TextChunker",
+    "MinioFileReader",
+    "MilvusVectorStore",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -24,6 +28,10 @@ _LAZY_IMPORTS: dict[str, str] = {
     "FileStorageService": "app.services.file_storage_service:FileStorageService",
     "UserService": "app.services.users_service:UserService",
     "VectorizationService": "app.services.vectorization_service:VectorizationService",
+    "DocumentParser": "app.services.vectorization.document_parser:DocumentParser",
+    "TextChunker": "app.services.vectorization.text_chunker:TextChunker",
+    "MinioFileReader": "app.services.vectorization.file_reader:MinioFileReader",
+    "MilvusVectorStore": "app.services.vectorization.vector_store:MilvusVectorStore",
 }
 
 
@@ -49,3 +57,7 @@ if TYPE_CHECKING:
     from app.services.file_storage_service import FileStorageService
     from app.services.users_service import UserService
     from app.services.vectorization_service import VectorizationService
+    from app.services.vectorization.document_parser import DocumentParser
+    from app.services.vectorization.text_chunker import TextChunker
+    from app.services.vectorization.file_reader import MinioFileReader
+    from app.services.vectorization.vector_store import MilvusVectorStore

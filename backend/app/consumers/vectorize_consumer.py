@@ -11,8 +11,10 @@ from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
     get_rabbitmq_connection,
 )
-from app.core.redis_client import get_redis_client, FILE_VECTORIZATION_KEY
+from app.core.redis_client import get_redis_client, FILE_VECTORIZATION_TASK_STATUS
+from app.core.settings import get_settings
 from app.services.vectorization_service import VectorizationService
+from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
 
@@ -28,16 +30,24 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
         object_name = payload["object_name"]
         content_type = payload.get("content_type") or ""
 
-        task_key = FILE_VECTORIZATION_KEY.format(file_md5)
-        task_status = await redis_client.get(task_key)
+        task_status = await redis_client.get(FILE_VECTORIZATION_TASK_STATUS.format(file_md5))
         if task_status == "success":
             logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
             return
 
+        settings = get_settings()
+        vector_store = MilvusVectorStore(
+            uri=settings.MILVUS_URI,
+            collection_name=settings.VECTOR_COLLECTION,
+            dim=settings.EMBEDDING_DIM,
+        )
         service = VectorizationService(
             db=db,
             redis_client=redis_client,
             minio_client=minio_client,
+            vector_store=vector_store,
+            memory_threshold_mb=settings.VECTOR_MEMORY_THRESHOLD_MB,
+            vector_batch_size=settings.VECTOR_BATCH_SIZE,
         )
         await service.vectorize_file(
             file_id=file_id,

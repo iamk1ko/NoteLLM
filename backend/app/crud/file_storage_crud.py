@@ -366,13 +366,17 @@ class FileStorageCRUD:
     async def get_user_file_async(
         db: AsyncSession, file_id: int, user_id: int
     ) -> FileStorage | None:
-        """异步获取用户的文件（带权限检查）。"""
+        """异步获取用户的文件（带权限检查）。
+
+        注意：
+        - 不再限制 status == EMBEDDED，允许查询上传中或处理中的文件
+        """
 
         result = await db.scalar(
             select(FileStorage).where(
                 and_(
                     FileStorage.id == file_id,
-                    FileStorage.status == FileStorageStatus.EMBEDDED,
+                    # FileStorage.status == FileStorageStatus.EMBEDDED, # Remove this restriction
                     or_(
                         FileStorage.user_id == user_id,  # 用户的私有文件
                         FileStorage.is_public == True,  # 公共文件

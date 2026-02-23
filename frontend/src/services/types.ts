@@ -97,3 +97,13 @@ export interface UploadProgress {
   total?: number;
   percent: number;
 }
+
+// 8. Chunk Upload Response
+export interface ChunkUploadResponse {
+  file_md5: string;
+  chunk_md5: string;
+  chunk_index: number;
+  uploaded: boolean;
+  file_id?: number; // Optional, might be returned in some implementations or inferred
+}
+

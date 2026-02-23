@@ -1,47 +1,147 @@
 import http from "@/services/http";
-import type { ApiResponse, FileItem, PaginatedResponse, UploadProgress } from "@/services/types";
+import type { ApiResponse, FileItem, PaginatedResponse, UploadProgress, ChunkUploadResponse } from "@/services/types";
+import SparkMD5 from "spark-md5";
 
 // File Service matching API Documentation 2.3
 
-/**
- * Get Files List (Paged)
- * GET /files
- */
-export const fetchFiles = async (params: { page?: number; size?: number; include_public?: boolean } = {}): Promise<PaginatedResponse<FileItem>> => {
-  const { data } = await http.get<ApiResponse<PaginatedResponse<FileItem>>>("/files", { params });
-  return data.data; 
+// Helper: Calculate File MD5
+const calculateMD5 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const chunkSize = 2097152; // 2MB
+    const chunks = Math.ceil(file.size / chunkSize);
+    let currentChunk = 0;
+    const spark = new SparkMD5.ArrayBuffer();
+    const fileReader = new FileReader();
+
+    fileReader.onload = function (e) {
+      spark.append(e.target?.result as ArrayBuffer);
+      currentChunk++;
+
+      if (currentChunk < chunks) {
+        loadNext();
+      } else {
+        resolve(spark.end());
+      }
+    };
+
+    fileReader.onerror = function () {
+      reject("MD5 calculation failed");
+    };
+
+    function loadNext() {
+      const start = currentChunk * chunkSize;
+      const end = ((start + chunkSize) >= file.size) ? file.size : start + chunkSize;
+      fileReader.readAsArrayBuffer(file.slice(start, end));
+    }
+
+    loadNext();
+  });
 };
 
 /**
- * Get File Detail
- * GET /files/{id}
+ * Upload Chunk
+ * POST /files/upload/chunk
  */
-export const fetchFileDetail = async (id: number | string): Promise<FileItem> => {
-  const { data } = await http.get<ApiResponse<FileItem>>(`/files/${id}`);
+const uploadChunk = async (formData: FormData): Promise<ChunkUploadResponse> => {
+  // The backend expects multipart form data
+  // We don't need to set Content-Type manually, axios/browser does it with boundary
+  // But wait, my code explicitly sets it:
+  // headers: { "Content-Type": "multipart/form-data" },
+  // This is actually BAD practice with axios + FormData because it might miss the boundary.
+  // Axios usually handles it if you pass FormData.
+  // Let's remove the explicit header.
+  const { data } = await http.post<ApiResponse<ChunkUploadResponse>>("/files/upload/chunk", formData);
   return data.data;
 };
 
 /**
- * Simple File Upload
- * POST /files
+ * Check Upload Completion
+ * GET /files/upload/is_complete/{fileId}
+ */
+const checkUploadComplete = async (fileId: number): Promise<FileItem | null> => {
+  try {
+    const { data } = await http.get<ApiResponse<FileItem>>(`/files/upload/is_complete/${fileId}`);
+    return data.data;
+  } catch (e) {
+    return null;
+  }
+};
+
+/**
+ * Upload File (Smart: Chunked)
  */
 export const uploadFile = async (
   file: File,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<FileItem> => {
-  const formData = new FormData();
-  formData.append("file", file);
+  // 1. Calculate MD5
+  const fileMd5 = await calculateMD5(file);
 
-  const { data } = await http.post<ApiResponse<FileItem>>("/files", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    onUploadProgress: (event) => {
-      if (!onProgress) return;
-      const total = event.total ?? 0;
-      const percent = total ? Math.round((event.loaded / total) * 100) : 0;
-      onProgress({ loaded: event.loaded, total, percent });
-    },
-  });
-  return data.data;
+  // 2. Chunk Configuration
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+  const totalSize = file.size;
+  const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+  const fileName = file.name;
+
+  // 3. Determine Content Type
+  // Fix for markdown files appearing as octet-stream
+  let contentType = file.type;
+  if (!contentType || contentType === 'application/octet-stream') {
+     if (fileName.toLowerCase().endsWith(".md")) contentType = "text/markdown";
+     else if (fileName.toLowerCase().endsWith(".pdf")) contentType = "application/pdf";
+     else if (fileName.toLowerCase().endsWith(".txt")) contentType = "text/plain";
+  }
+
+  let fileId: number | undefined;
+
+  // 4. Upload Chunks Loop
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, totalSize);
+    const chunkBlob = file.slice(start, end);
+
+    const formData = new FormData();
+    formData.append("file_md5", fileMd5);
+    formData.append("chunk_index", i.toString());
+    formData.append("total_chunks", totalChunks.toString());
+    formData.append("chunk_size", (end - start).toString());
+    formData.append("total_size", totalSize.toString());
+    formData.append("file_name", fileName);
+    formData.append("content_type", contentType || "application/octet-stream"); // Fallback
+    formData.append("is_public", "false");
+    formData.append("file_chunk", chunkBlob, fileName); 
+
+    const res = await uploadChunk(formData);
+    
+    if (res.file_id) {
+      fileId = res.file_id;
+    }
+
+    if (onProgress) {
+      const percent = Math.round(((i + 1) / totalChunks) * 100);
+      onProgress({ loaded: end, total: totalSize, percent });
+    }
+  }
+
+  if (!fileId) {
+    throw new Error("Upload failed: No file ID returned from server.");
+  }
+
+  // 5. Poll for Completion (Wait for Merge)
+  for (let i = 0; i < 60; i++) { // Wait up to 60s
+     await new Promise(r => setTimeout(r, 1000));
+     const fileObj = await checkUploadComplete(fileId);
+     // Status: 1 (Ready/Uploaded), 2 (Vectorized), 3 (Failed)
+     // If status >= 1, it means merge is done.
+     if (fileObj && fileObj.status >= 1 && fileObj.status !== 3) { 
+        return fileObj;
+     }
+     if (fileObj && fileObj.status === 3) {
+        throw new Error("Upload failed: Server processing error.");
+     }
+  }
+
+  throw new Error("Upload timeout: File merge taking too long.");
 };
 
 /**

@@ -42,7 +42,9 @@
     </div>
 
     <div v-if="loading" class="loading-state">
-      <div class="pixel-spinner"></div>
+      <div class="flow-loader">
+        <div class="flow-dot" v-for="n in 7" :key="n"></div>
+      </div>
       <p>数据加载中...</p>
     </div>
 
@@ -276,19 +278,42 @@ onMounted(() => {
   color: var(--nl-text-secondary);
 }
 
-.pixel-spinner {
-  width: 40px;
-  height: 40px;
-  background: var(--nl-primary);
+.flow-loader {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
   margin: 0 auto 20px;
-  animation: flip 1.2s infinite steps(2);
-  box-shadow: 4px 4px 0px var(--nl-border);
-  border: 2px solid var(--nl-border);
+  height: 20px;
+  align-items: center;
 }
 
-@keyframes flip {
-  0% { transform: perspective(120px) rotateX(0deg) rotateY(0deg); }
-  50% { transform: perspective(120px) rotateX(-180deg) rotateY(0deg); }
-  100% { transform: perspective(120px) rotateX(-180deg) rotateY(-180deg); }
+.flow-dot {
+  width: 12px;
+  height: 12px;
+  background: var(--nl-primary);
+  border: 2px solid var(--nl-border);
+  box-shadow: 2px 2px 0px var(--nl-border);
+  animation: flow 1.4s ease-in-out infinite;
+}
+
+/* Creating the wave effect with staggered delays */
+.flow-dot:nth-child(1) { animation-delay: 0.0s; }
+.flow-dot:nth-child(2) { animation-delay: 0.1s; }
+.flow-dot:nth-child(3) { animation-delay: 0.2s; }
+.flow-dot:nth-child(4) { animation-delay: 0.3s; }
+.flow-dot:nth-child(5) { animation-delay: 0.4s; }
+.flow-dot:nth-child(6) { animation-delay: 0.5s; }
+.flow-dot:nth-child(7) { animation-delay: 0.6s; }
+
+@keyframes flow {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-8px);
+    opacity: 1;
+    background-color: #4338ca; /* Slightly darker purple for emphasis */
+  }
 }
 </style>

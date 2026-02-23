@@ -515,3 +515,21 @@ ui库：element-plus
 - README.md // 项目说明文档
 - .env // 环境变量配置
 - .gitignore // git忽略文件配置
+
+[前端上传文件业务改进]
+前端需要控制分片上传文件的大小，确保每个分片不超过10MB，以适配后端的分片处理逻辑。
+前端在上传文件时需要将文件切割成多个小片段，并逐个发送到后端。同时，前端还需要额外传递总切片数和总文件大小数据，方便后端做文件完整性校验。
+此外，前端需要准确传递文件的类型（content_type），以便后端能够正确解析文件内容并进行向量化处理。
+
+目前，我在前端界面上传了一个markdown的文档，后端接收后在向量化服务阶段出错了，因为文件类型被识别成了 application/octet-stream，导致文档解析失败，进而向量化失败。
+
+后端部分错误日志：
+file_merge_consumer._merge_file:130 | INFO: 合并完成：file_md5=8107e3bce12af2211b3a2d029b12bce4
+file_merge_consumer._merge_file:139 | DEBUG: 已清理临时分片数据：file_md5=8107e3bce12af2211b3a2d029b12bce4
+document_parser.parse:35 | ERROR: 不支持的文件类型: application/octet-stream
+orchestrator.vectorize_file:87 | ERROR: 文件解析失败: file_md5=8107e3bce12af2211b3a2d029b12bce4, content_type=application/octet-stream, error=Unsupported content type: application/octet-stream
+orchestrator.vectorize_file:174 | ERROR: 向量化任务失败：file_md5=8107e3bce12af2211b3a2d029b12bce4, stage=VectorizationStage.PARSE, error=文档解析失败: content_type=application/octet-stream
+file_storage_crud.update_file_status:453 | INFO: 更新文件状态：file_id=9, status=3
+vectorize_listener._vectorize_task:83 | ERROR: 向量化任务消费失败：file_md5=8107e3bce12af2211b3a2d029b12bce4, error=文档解析失败: content_type=application/octet-stream
+
+

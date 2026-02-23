@@ -231,12 +231,28 @@ onMounted(async () => {
 }
 
 .chat-sidebar.collapsed {
-  width: 60px;
+  width: 80px;
 }
 
 .chat-sidebar.collapsed .sidebar-content,
 .chat-sidebar.collapsed .sidebar-title {
   display: none;
+}
+
+.chat-sidebar.collapsed .sidebar-header {
+  height: auto;
+  min-height: 60px;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.chat-sidebar.collapsed .icon-btn {
+  width: 48px;
+  height: 48px;
+  justify-content: center;
+  align-items: center;
 }
 
 .sidebar-header {

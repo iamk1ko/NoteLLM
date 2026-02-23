@@ -125,6 +125,14 @@ class FileStorageService:
             # 用 Redis meta 简单判断是否已有任务
             redis_client = cast(Any, self.redis)
             existing = await redis_client.hget(file_storage_meta_key, "status")
+
+            # 即使 Redis 说存在，也要确认 DB 中真的有记录，防止 Redis 脏数据导致 DB 记录未创建
+            if existing is not None:
+                existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
+                    self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+                )
+                if existing_obj is None:
+                    existing = None  # 视为不存在，需要重新创建 DB 记录
         else:
             # 没有 Redis 时通过数据库兜底判断是否已有任务
             existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
@@ -163,8 +171,14 @@ class FileStorageService:
                 is_public=payload.is_public,
                 status=FileStorageStatus.UPLOADING.value,
             )
-            await self.save_file_metadata(
+            existing_obj = await self.save_file_metadata(
                 user=user, payload=file_save_dto, bucket_name=temp_bucket
+            )
+
+        # Ensure we have the file object to return ID
+        if existing_obj is None:
+            existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
+                self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
             )
 
         # 2) 写入分片元信息（状态 0-上传中-UPLOADING）
@@ -358,6 +372,7 @@ class FileStorageService:
             "chunk_md5": chunk_md5,
             "chunk_index": payload.chunk_index,
             "uploaded": True,
+            "file_id": existing_obj.id if existing_obj else None,
         }
 
     async def _put_object_with_retry(

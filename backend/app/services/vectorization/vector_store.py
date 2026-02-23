@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import time
+import asyncio
 from typing import Dict, Any, Optional, List
 
 from pymilvus import (
@@ -57,61 +58,31 @@ class MilvusVectorStore:
         self.client = self._setup_milvus_client()
         self.embedder = self._setup_embedding_model()
 
-    async def init_collection(self) -> None:
+    async def init_collection(self, is_renew_collection=False) -> None:
         """
-        Initialize the collection: create if not exists, otherwise load.
-        This should be called at application startup.
+        初始化集合：如果不存在，则创建，否则加载。这应该在应用启动时调用。
+
+        Args:
+            is_renew_collection: 是否强制重新创建集合（会删除已存在的集合）
         """
         try:
+            if is_renew_collection:
+                await self.delete_collection()
+
             exists = await self.has_collection()
             if not exists:
-                logger.info(
-                    f"Collection {self.collection_name} does not exist. Creating..."
-                )
-                await self.create_collection()
-                # Create index immediately after creation if needed, or leave it to build_vector_index
-                # For now, we just ensure the collection exists.
+                logger.info(f'集合 "{self.collection_name}" 不存在. 正在尝试创建...')
+                await self._create_collection(force_recreate=True)
+                # await self._create_collection_schema() # Remove redundant call
+                await self._create_index(skip_if_exists=True)
             else:
-                logger.info(f"Collection {self.collection_name} exists. Loading...")
+                logger.info(f'集合 "{self.collection_name}" 已存在. 正在加载中...')
                 await self.load_collection()
 
             self.collection_created = True
         except Exception as e:
-            logger.error(f"Failed to initialize collection {self.collection_name}: {e}")
+            logger.error(f'无法初始化集合 "{self.collection_name}": {e}')
             raise
-
-    @staticmethod
-    def _safe_truncate(text: Optional[str], max_length: int) -> str:
-        """严格截断到 max_length（保证返回字符串长度绝不超过 max_length）。
-        Args:
-            text: 输入文本
-            max_length: 最大长度限制
-
-        Returns:
-            截断后的文本，长度不超过 max_length
-
-        注意：如果你希望保留省略号用于展示，请用 `_preview_truncate`。
-        """
-        if text is None:
-            return ""
-        s = str(text)
-        # return s[:max_length]
-        raw = s.encode("utf-8")
-        if len(raw) <= max_length:
-            return s
-        return raw[:max_length].decode("utf-8", errors="ignore")
-
-    @staticmethod
-    def _preview_truncate(text: Optional[str], max_length: int) -> str:
-        """用于日志/展示的截断：最多 max_length 字符（包含省略号）。"""
-        if text is None:
-            return ""
-        s = str(text)
-        if len(s) <= max_length:
-            return s
-        if max_length <= 3:
-            return s[:max_length]
-        return s[: max_length - 3] + "..."
 
     def _require_client(self) -> MilvusClient:
         if self.client is None:
@@ -122,12 +93,6 @@ class MilvusVectorStore:
         if self.embedder is None:
             raise RuntimeError("Embedding model is not initialized")
         return self.embedder
-
-    @staticmethod
-    async def _maybe_await(result: Any) -> Any:
-        if inspect.isawaitable(result):
-            return await result
-        return result
 
     def _setup_milvus_client(self) -> Optional[MilvusClient]:
         if self.client is not None:
@@ -163,105 +128,7 @@ class MilvusVectorStore:
             )
         return embedder
 
-    def _create_collection_schema(self) -> CollectionSchema:
-        """
-        创建集合模式
-
-        Returns:
-            集合模式对象
-        """
-        # 通过 analyzer_params 定义文本分析器的参数.
-        analyzer_params = {
-            "tokenizer": "icu",  # 使用 ICU 分词器，支持多语言文本的分词，特别适合处理中文文本，可以更准确地将文本切分成词语，从而提高搜索和匹配的效果
-        }
-
-        fields = [
-            FieldSchema(
-                name=MilvusField.PK,
-                dtype=DataType.INT64,
-                description="主键id",
-                is_primary=True,
-                auto_id=True,
-            ),
-            FieldSchema(
-                name=MilvusField.FILE_ID, dtype=DataType.INT64, description="文件id"
-            ),
-            FieldSchema(
-                name=MilvusField.FILE_MD5,
-                dtype=DataType.VARCHAR,
-                max_length=FILE_MD5_MAX_LENGTH,
-                description="文件md5",
-            ),
-            FieldSchema(
-                name=MilvusField.CHUNK_INDEX,
-                dtype=DataType.INT64,
-                description="文件块索引(防止大文件被切分成多个块时的重复)",
-            ),
-            FieldSchema(
-                name=MilvusField.PAGE_NO,
-                dtype=DataType.INT64,
-                is_nullable=True,
-                description="页码",
-            ),
-            FieldSchema(
-                name=MilvusField.SECTION,
-                dtype=DataType.VARCHAR,
-                max_length=SECTION_MAX_LENGTH,
-                is_nullable=True,
-                description="章节信息",
-            ),
-            FieldSchema(
-                name=MilvusField.CONTENT,
-                dtype=DataType.VARCHAR,
-                max_length=CONTENT_MAX_LENGTH,
-                is_nullable=True,
-                description="文本块内容",
-                enable_analyzer=True,  # 启用文本分析器，支持基于文本内容的搜索和过滤
-                enable_match=True,  # 启用基于文本内容的匹配功能，允许在搜索时直接使用文本内容进行过滤和排序
-                analyzer_params=analyzer_params,
-            ),
-            FieldSchema(
-                name=MilvusField.SPARSE_VECTOR,
-                dtype=DataType.SPARSE_FLOAT_VECTOR,
-                description="文本块的稀疏向量表示",
-            ),
-            FieldSchema(
-                name=MilvusField.DENSE_VECTOR,
-                dtype=DataType.FLOAT_VECTOR,
-                dim=self.dim,
-                description="文本块的稠密向量表示",
-            ),
-            FieldSchema(
-                name=MilvusField.METADATA,
-                dtype=DataType.JSON,
-                is_nullable=True,
-                description="其他元信息(可选)",
-            ),
-        ]
-
-        # 利用 Milvus 的 Function 定义 BM25 函数，输入为文本内容，输出为稀疏向量。这样可以在 Milvus 内部直接使用 BM25 进行相似度搜索，无需在应用层进行额外处理。
-        bm25_function = Function(
-            name="text_bm25_emb",
-            input_field_names=[
-                MilvusField.CONTENT
-            ],  # 输入字段为MilvusField.CONTENT，即文本内容
-            output_field_names=[
-                MilvusField.SPARSE_VECTOR
-            ],  # 输出字段为MilvusField.SPARSE_VECTOR，即 BM25 转换后的稀疏向量
-            function_type=FunctionType.BM25,
-            description="BM25 函数，用于将文本内容转换为稀疏向量，以支持基于 BM25 的相似度搜索",
-        )
-
-        schema = CollectionSchema(
-            fields, functions=[bm25_function], description="知识库向量数据表"
-        )
-
-        logger.info(
-            "集合 schema 创建完成，包含字段: {}", [field.name for field in fields]
-        )
-        return schema
-
-    async def create_collection(self, force_recreate: bool = False) -> bool:
+    async def _create_collection(self, force_recreate: bool = False) -> bool:
         """
         创建Milvus集合
 
@@ -274,19 +141,17 @@ class MilvusVectorStore:
         try:
             client = self._require_client()
             # 检查集合是否存在
-            if await self._maybe_await(client.has_collection(self.collection_name)):
+            if await self.has_collection():
                 if force_recreate:
                     logger.info(f"删除已存在的集合: {self.collection_name}")
-                    await self._maybe_await(
-                        client.drop_collection(self.collection_name)
-                    )
+                    await self.delete_collection()
                 else:
                     logger.info(f"集合 {self.collection_name} 已存在")
                     self.collection_created = True
                     return True
 
-            # 创建集合
-            schema = self._create_collection_schema()
+            # 创建 schema
+            schema = await self._create_collection_schema()
 
             await self._maybe_await(
                 client.create_collection(
@@ -306,7 +171,107 @@ class MilvusVectorStore:
             logger.error(f"创建集合失败: {e}")
             return False
 
-    async def create_index(self, *, skip_if_exists: bool = True) -> bool:
+    async def _create_collection_schema(self) -> CollectionSchema:
+        """
+        创建集合模式
+
+        Returns:
+            集合模式对象
+        """
+        # 通过 analyzer_params 定义文本分析器的参数.
+        analyzer_params = {
+            "tokenizer": "icu",  # 使用 ICU 分词器，支持多语言文本的分词，特别适合处理中文文本，可以更准确地将文本切分成词语，从而提高搜索和匹配的效果
+        }
+
+        fields = [
+            FieldSchema(
+                name=MilvusField.PK.value,
+                dtype=DataType.INT64,
+                description="主键id",
+                is_primary=True,
+                auto_id=True,
+            ),
+            FieldSchema(
+                name=MilvusField.FILE_ID.value,
+                dtype=DataType.INT64,
+                description="文件id",
+            ),
+            FieldSchema(
+                name=MilvusField.FILE_MD5.value,
+                dtype=DataType.VARCHAR,
+                max_length=FILE_MD5_MAX_LENGTH,
+                description="文件md5",
+            ),
+            FieldSchema(
+                name=MilvusField.CHUNK_INDEX.value,
+                dtype=DataType.INT64,
+                description="文件块索引(防止大文件被切分成多个块时的重复)",
+            ),
+            FieldSchema(
+                name=MilvusField.PAGE_NO.value,
+                dtype=DataType.INT64,
+                is_nullable=True,
+                description="页码",
+            ),
+            FieldSchema(
+                name=MilvusField.SECTION.value,
+                dtype=DataType.VARCHAR,
+                max_length=SECTION_MAX_LENGTH,
+                is_nullable=True,
+                description="章节信息",
+            ),
+            FieldSchema(
+                name=MilvusField.CONTENT.value,
+                dtype=DataType.VARCHAR,
+                max_length=CONTENT_MAX_LENGTH,
+                is_nullable=True,
+                description="文本块内容",
+                enable_analyzer=True,  # 启用文本分析器，支持基于文本内容的搜索和过滤
+                enable_match=True,  # 启用基于文本内容的匹配功能，允许在搜索时直接使用文本内容进行过滤和排序
+                analyzer_params=analyzer_params,
+            ),
+            FieldSchema(
+                name=MilvusField.SPARSE_VECTOR.value,
+                dtype=DataType.SPARSE_FLOAT_VECTOR,
+                description="文本块的稀疏向量表示",
+            ),
+            FieldSchema(
+                name=MilvusField.DENSE_VECTOR.value,
+                dtype=DataType.FLOAT_VECTOR,
+                dim=self.dim,
+                description="文本块的稠密向量表示",
+            ),
+            FieldSchema(
+                name=MilvusField.METADATA.value,
+                dtype=DataType.JSON,
+                is_nullable=True,
+                description="其他元信息(可选)",
+            ),
+        ]
+
+        # 利用 Milvus 的 Function 定义 BM25 函数，输入为文本内容，输出为稀疏向量。这样可以在 Milvus 内部直接使用 BM25 进行相似度搜索，无需在应用层进行额外处理。
+        bm25_function = Function(
+            name="text_bm25_emb",
+            input_field_names=[
+                MilvusField.CONTENT.value
+            ],  # 输入字段为MilvusField.CONTENT.value，即文本内容
+            output_field_names=[
+                MilvusField.SPARSE_VECTOR.value
+            ],  # 输出字段为MilvusField.SPARSE_VECTOR.value，即 BM25 转换后的稀疏向量
+            function_type=FunctionType.BM25,
+            description="BM25 函数，用于将文本内容转换为稀疏向量，以支持基于 BM25 的相似度搜索",
+        )
+
+        schema = CollectionSchema(
+            fields, functions=[bm25_function], description="知识库向量数据表"
+        )
+
+        logger.info(
+            "集合 schema 创建完成，包含字段: {}", [field.name for field in fields]
+        )
+        return schema
+
+    async def _create_index(self, *, skip_if_exists: bool = True) -> bool:
         """
         创建向量索引
 
@@ -334,7 +299,7 @@ class MilvusVectorStore:
                 client.prepare_index_params()
             )
             index_params.add_index(
-                field_name=MilvusField.SPARSE_VECTOR,
+                field_name=MilvusField.SPARSE_VECTOR.value,
                 index_name="sparse_vector_bm25_index",
                 index_type="SPARSE_INVERTED_INDEX",
                 metric_type="BM25",
@@ -346,7 +311,7 @@ class MilvusVectorStore:
             )
 
             index_params.add_index(
-                field_name=MilvusField.DENSE_VECTOR,
+                field_name=MilvusField.DENSE_VECTOR.value,
                 index_name="dense_vector_hnsw_index",
                 index_type="HNSW",
                 metric_type="COSINE",
@@ -369,6 +334,45 @@ class MilvusVectorStore:
         except Exception as e:
             logger.error(f"创建索引失败: {e}")
             return False
+
+    @staticmethod
+    def _safe_truncate(text: Optional[str], max_length: int) -> str:
+        """严格截断到 max_length（保证返回字符串长度绝不超过 max_length）。
+        Args:
+            text: 输入文本
+            max_length: 最大长度限制
+
+        Returns:
+            截断后的文本，长度不超过 max_length
+
+        注意：如果你希望保留省略号用于展示，请用 `_preview_truncate`。
+        """
+        if text is None:
+            return ""
+        s = str(text)
+        # return s[:max_length]
+        raw = s.encode("utf-8")
+        if len(raw) <= max_length:
+            return s
+        return raw[:max_length].decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _preview_truncate(text: Optional[str], max_length: int) -> str:
+        """用于日志/展示的截断：最多 max_length 字符（包含省略号）。"""
+        if text is None:
+            return ""
+        s = str(text)
+        if len(s) <= max_length:
+            return s
+        if max_length <= 3:
+            return s[:max_length]
+        return s[: max_length - 3] + "..."
+
+    @staticmethod
+    async def _maybe_await(result: Any) -> Any:
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     async def build_vector_index(self, chunks: List[ChunkRecord]) -> bool:
         """
@@ -394,13 +398,16 @@ class MilvusVectorStore:
 
         try:
             # 1. 创建集合
-            if not await self.create_collection(force_recreate=False):
+            if not await self._create_collection(force_recreate=False):
+                logger.error("创建集合失败，终止构建索引")
                 return False
 
             # 2. 准备数据
-            logger.info("正在生成向量embeddings...")
+            logger.info(f"正在生成 {len(chunks)} 个文档的向量embeddings...")
+            start_time = time.time()
             texts: list[str] = [chunk.content or "" for chunk in chunks]
             vectors = self._require_embedding().encode_documents(texts)
+            logger.info(f"向量生成完成，耗时: {time.time() - start_time:.2f}s")
 
             # 3. 准备插入数据
             entities = []
@@ -408,26 +415,30 @@ class MilvusVectorStore:
             for i, chunk in enumerate(chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
-                    MilvusField.FILE_ID: chunk.file_id,
-                    MilvusField.FILE_MD5: self._safe_truncate(
+                    MilvusField.FILE_ID.value: chunk.file_id,
+                    MilvusField.FILE_MD5.value: self._safe_truncate(
                         chunk.file_md5, FILE_MD5_MAX_LENGTH
                     ),
-                    MilvusField.CHUNK_INDEX: chunk.chunk_index,
-                    MilvusField.PAGE_NO: chunk.page_no or 0,
-                    MilvusField.SECTION: self._safe_truncate(
+                    MilvusField.CHUNK_INDEX.value: chunk.chunk_index,
+                    MilvusField.PAGE_NO.value: chunk.page_no or 0,
+                    MilvusField.SECTION.value: self._safe_truncate(
                         chunk.section, SECTION_MAX_LENGTH
                     ),
-                    MilvusField.CONTENT: self._safe_truncate(
+                    MilvusField.CONTENT.value: self._safe_truncate(
                         chunk.content, CONTENT_MAX_LENGTH
                     ),
-                    MilvusField.DENSE_VECTOR: dense_vector,
-                    MilvusField.METADATA: chunk.metadata or {},
+                    MilvusField.DENSE_VECTOR.value: dense_vector,
+                    MilvusField.METADATA.value: chunk.metadata or {},
                 }
                 entities.append(entity)
 
+            logger.info(f"数据准备完成，共 {len(entities)} 条记录")
+
             # 4. 批量插入数据
-            logger.info("正在插入向量数据...")
+            logger.info("开始批量插入向量数据...")
+            insert_start_time = time.time()
             batch_size = get_settings().VS_BATCH_SIZE
+            total_inserted = 0
             for i in range(0, len(entities), batch_size):
                 batch = entities[i : i + batch_size]
                 await self._maybe_await(
@@ -435,19 +446,29 @@ class MilvusVectorStore:
                         collection_name=self.collection_name, data=batch
                     )
                 )
+                total_inserted += len(batch)
                 logger.info(
-                    f"已插入 {min(i + batch_size, len(entities))}/{len(entities)} 条数据"
+                    f"已插入进度: {total_inserted}/{len(entities)} ({total_inserted / len(entities):.1%})"
                 )
+            logger.info(f"批量插入完成，耗时: {time.time() - insert_start_time:.2f}s")
 
             # 5. 创建索引
-            if not await self.create_index():
+            logger.info("开始创建/确认向量索引...")
+            index_start_time = time.time()
+            if not await self._create_index():
+                logger.error("创建索引失败")
                 return False
+            logger.info(
+                f"索引创建/确认完成，耗时: {time.time() - index_start_time:.2f}s"
+            )
 
             # 6. 加载集合到内存
+            logger.info("正在加载集合到内存...")
+            load_start_time = time.time()
             await self._maybe_await(
                 self._require_client().load_collection(self.collection_name)
             )
-            logger.info("集合已加载到内存")
+            logger.info(f"集合加载完成，耗时: {time.time() - load_start_time:.2f}s")
 
             # 7. 等待索引构建完成
             logger.info("等待索引构建完成...")
@@ -470,12 +491,15 @@ class MilvusVectorStore:
         Returns:
             是否添加成功
         """
-        logger.info(f"正在添加 {len(new_chunks)} 个新文档到索引...")
+        logger.info(f"准备添加 {len(new_chunks)} 个新文档到索引...")
+        start_time = time.time()
 
         try:
             # 生成向量
+            logger.debug("正在生成新文档的 embeddings...")
             texts: list[str] = [chunk.content or "" for chunk in new_chunks]
             vectors = self._require_embedding().encode_documents(texts)
+            logger.debug(f"Embeddings 生成耗时: {time.time() - start_time:.2f}s")
 
             # 准备插入数据
             entities = []
@@ -483,35 +507,39 @@ class MilvusVectorStore:
             for i, chunk in enumerate(new_chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
-                    MilvusField.FILE_ID: chunk.file_id,
-                    MilvusField.FILE_MD5: self._safe_truncate(
+                    MilvusField.FILE_ID.value: chunk.file_id,
+                    MilvusField.FILE_MD5.value: self._safe_truncate(
                         chunk.file_md5, FILE_MD5_MAX_LENGTH
                     ),
-                    MilvusField.CHUNK_INDEX: chunk.chunk_index,
-                    MilvusField.PAGE_NO: chunk.page_no or 0,
-                    MilvusField.SECTION: self._safe_truncate(
+                    MilvusField.CHUNK_INDEX.value: chunk.chunk_index,
+                    MilvusField.PAGE_NO.value: chunk.page_no or 0,
+                    MilvusField.SECTION.value: self._safe_truncate(
                         chunk.section, SECTION_MAX_LENGTH
                     ),
-                    MilvusField.CONTENT: self._safe_truncate(
+                    MilvusField.CONTENT.value: self._safe_truncate(
                         chunk.content, CONTENT_MAX_LENGTH
                     ),
-                    MilvusField.DENSE_VECTOR: dense_vector,
-                    MilvusField.METADATA: chunk.metadata or {},
+                    MilvusField.DENSE_VECTOR.value: dense_vector,
+                    MilvusField.METADATA.value: chunk.metadata or {},
                 }
                 entities.append(entity)
 
             # 插入数据
+            insert_start = time.time()
+            logger.info(
+                f"正在向集合 {self.collection_name} 插入 {len(entities)} 条数据..."
+            )
             await self._maybe_await(
                 self._require_client().insert(
                     collection_name=self.collection_name, data=entities
                 )
             )
-
-            logger.info("新文档添加完成")
+            logger.info(f"插入完成，耗时: {time.time() - insert_start:.2f}s")
+            logger.info(f"新文档添加流程总耗时: {time.time() - start_time:.2f}s")
             return True
 
         except Exception as e:
-            logger.error(f"添加新文档失败: {e}")
+            logger.error(f"添加新文档失败: {e}", exc_info=True)
             return False
 
     async def search_dense(
@@ -521,8 +549,10 @@ class MilvusVectorStore:
         k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        start_time = time.time()
         try:
             filter_expr = self._build_filter_expr(filters)
+            logger.debug(f"语义检索开始，过滤条件: {filter_expr}, top_k: {k}")
 
             search_params = {
                 "metric_type": "COSINE",
@@ -535,14 +565,14 @@ class MilvusVectorStore:
                 "anns_field": MilvusField.DENSE_VECTOR.value,
                 "limit": k,
                 "output_fields": [
-                    MilvusField.PK,
-                    MilvusField.FILE_ID,
-                    MilvusField.FILE_MD5,
-                    MilvusField.CHUNK_INDEX,
-                    MilvusField.PAGE_NO,
-                    MilvusField.SECTION,
-                    MilvusField.CONTENT,
-                    MilvusField.METADATA,
+                    MilvusField.PK.value,
+                    MilvusField.FILE_ID.value,
+                    MilvusField.FILE_MD5.value,
+                    MilvusField.CHUNK_INDEX.value,
+                    MilvusField.PAGE_NO.value,
+                    MilvusField.SECTION.value,
+                    MilvusField.CONTENT.value,
+                    MilvusField.METADATA.value,
                 ],
                 "search_params": search_params,
             }
@@ -552,9 +582,13 @@ class MilvusVectorStore:
             results = await self._maybe_await(
                 self._require_client().search(**search_kwargs)
             )
-            return self._format_results(results)
+            formatted = self._format_results(results)
+            logger.info(
+                f"语义检索完成，耗时: {time.time() - start_time:.4f}s, 命中: {len(formatted)}"
+            )
+            return formatted
         except Exception as e:
-            logger.error(f"语义检索失败: {e}")
+            logger.error(f"语义检索失败: {e}", exc_info=True)
             return []
 
     async def search_bm25(
@@ -564,8 +598,14 @@ class MilvusVectorStore:
         k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
+        start_time = time.time()
         try:
             filter_expr = self._build_filter_expr(filters)
+            # 对超长query进行截断展示
+            display_query = (query[:50] + "...") if len(query) > 50 else query
+            logger.debug(
+                f"BM25检索开始，Query: {display_query}, 过滤: {filter_expr}, top_k: {k}"
+            )
 
             search_params = {"metric_type": "BM25", "params": {}}
             search_kwargs = {
@@ -574,14 +614,14 @@ class MilvusVectorStore:
                 "anns_field": MilvusField.SPARSE_VECTOR.value,
                 "limit": k,
                 "output_fields": [  # 检索到后需要返回这些字段以供后续使用
-                    MilvusField.PK,
-                    MilvusField.FILE_ID,
-                    MilvusField.FILE_MD5,
-                    MilvusField.CHUNK_INDEX,
-                    MilvusField.PAGE_NO,
-                    MilvusField.SECTION,
-                    MilvusField.CONTENT,
-                    MilvusField.METADATA,
+                    MilvusField.PK.value,
+                    MilvusField.FILE_ID.value,
+                    MilvusField.FILE_MD5.value,
+                    MilvusField.CHUNK_INDEX.value,
+                    MilvusField.PAGE_NO.value,
+                    MilvusField.SECTION.value,
+                    MilvusField.CONTENT.value,
+                    MilvusField.METADATA.value,
                 ],
                 "search_params": search_params,
             }
@@ -591,9 +631,13 @@ class MilvusVectorStore:
             results = await self._maybe_await(
                 self._require_client().search(**search_kwargs)
             )
-            return self._format_results(results)
+            formatted = self._format_results(results)
+            logger.info(
+                f"BM25检索完成，耗时: {time.time() - start_time:.4f}s, 命中: {len(formatted)}"
+            )
+            return formatted
         except Exception as e:
-            logger.error(f"BM25 检索失败: {e}")
+            logger.error(f"BM25 检索失败: {e}", exc_info=True)
             return []
 
     async def search_hybrid(
@@ -605,17 +649,21 @@ class MilvusVectorStore:
         filters: Optional[Dict[str, Any]] = None,
         alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
-        dense_results = await self.search_dense(
-            query_vector=query_vector, k=k, filters=filters
+        start_time = time.time()
+        logger.info(f"混合检索开始，alpha={alpha}, top_k={k}")
+
+        # 并行执行向量检索和全文检索
+        dense_results, bm25_results = await asyncio.gather(
+            self.search_dense(query_vector=query_vector, k=k, filters=filters),
+            self.search_bm25(query=query, k=k, filters=filters),
         )
-        bm25_results = await self.search_bm25(query=query, k=k, filters=filters)
 
         merged: dict[str, Dict[str, Any]] = {}
 
         def merge(result: Dict[str, Any], score_key: str) -> None:
-            meta = result.get(MilvusField.METADATA, {})
-            file_id = meta.get(MilvusField.FILE_ID)
-            chunk_index = meta.get(MilvusField.CHUNK_INDEX)
+            meta = result.get(MilvusField.METADATA.value, {})
+            file_id = meta.get(MilvusField.FILE_ID.value)
+            chunk_index = meta.get(MilvusField.CHUNK_INDEX.value)
             key = (
                 f"{file_id}:{chunk_index}"
                 if file_id is not None
@@ -646,7 +694,11 @@ class MilvusVectorStore:
             reranked.append(item)
 
         reranked.sort(key=lambda item: item.get("score", 0.0), reverse=True)
-        return reranked[:k]
+        final_results = reranked[:k]
+        logger.info(
+            f"混合检索完成，耗时: {time.time() - start_time:.4f}s, 最终返回: {len(final_results)}"
+        )
+        return final_results
 
     @staticmethod
     def _build_filter_expr(filters: Optional[Dict[str, Any]]) -> str:
@@ -675,19 +727,29 @@ class MilvusVectorStore:
                 result = {
                     "id": hit.get("id") if isinstance(hit, dict) else None,
                     "score": hit.get("distance") if isinstance(hit, dict) else None,
-                    "text": entity.get(MilvusField.CONTENT),
-                    MilvusField.METADATA: {
-                        MilvusField.FILE_ID: entity.get(MilvusField.FILE_ID),
-                        MilvusField.FILE_MD5: entity.get(MilvusField.FILE_MD5),
-                        MilvusField.CHUNK_INDEX: entity.get(MilvusField.CHUNK_INDEX),
-                        MilvusField.PAGE_NO: entity.get(MilvusField.PAGE_NO),
-                        MilvusField.SECTION: self._preview_truncate(
-                            entity.get(MilvusField.SECTION), 50
+                    "text": entity.get(MilvusField.CONTENT.value),
+                    MilvusField.METADATA.value: {
+                        MilvusField.FILE_ID.value: entity.get(
+                            MilvusField.FILE_ID.value
                         ),
-                        MilvusField.CONTENT: self._preview_truncate(
-                            entity.get(MilvusField.CONTENT), 100
+                        MilvusField.FILE_MD5.value: entity.get(
+                            MilvusField.FILE_MD5.value
                         ),
-                        MilvusField.METADATA: entity.get(MilvusField.METADATA),
+                        MilvusField.CHUNK_INDEX.value: entity.get(
+                            MilvusField.CHUNK_INDEX.value
+                        ),
+                        MilvusField.PAGE_NO.value: entity.get(
+                            MilvusField.PAGE_NO.value
+                        ),
+                        MilvusField.SECTION.value: self._preview_truncate(
+                            entity.get(MilvusField.SECTION.value), 50
+                        ),
+                        MilvusField.CONTENT.value: self._preview_truncate(
+                            entity.get(MilvusField.CONTENT.value), 100
+                        ),
+                        MilvusField.METADATA.value: entity.get(
+                            MilvusField.METADATA.value
+                        ),
                     },
                 }
                 formatted_results.append(result)
@@ -727,7 +789,7 @@ class MilvusVectorStore:
         """
         try:
             client = self._require_client()
-            if await self._maybe_await(client.has_collection(self.collection_name)):
+            if await self.has_collection():
                 await self._maybe_await(client.drop_collection(self.collection_name))
                 logger.info(f"集合 {self.collection_name} 已删除")
                 self.collection_created = False
@@ -765,7 +827,7 @@ class MilvusVectorStore:
         """
         try:
             client = self._require_client()
-            if not await self._maybe_await(client.has_collection(self.collection_name)):
+            if not await self.has_collection():
                 logger.error(f"集合 {self.collection_name} 不存在")
                 return False
 

@@ -16,8 +16,8 @@ async def test_hybrid_search():
 
     # ================== 确保 Milvus collection 已创建 ==================
     if not client.collection_created:
-        await client.create_collection(force_recreate=True)
-        await client.create_index(skip_if_exists=True)
+        await client._create_collection(force_recreate=True)
+        await client._create_index(skip_if_exists=True)
 
     # ================== 解析文档，得到 Element 列表 ==================
     file_path = r"E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\app\tests\data\C2\md\派聪明RAG知识库检索面试题预测.md"
@@ -78,7 +78,7 @@ async def test_hybrid_search_2():
     client = MilvusVectorStore(uri="http://localhost:19530", collection_name="knowledge_base", dim=1024)
     # ================== 确保 Milvus collection 已创建 ==================
     if not client.collection_created:
-        await client.create_collection(force_recreate=False)
+        await client._create_collection(force_recreate=False)
 
     # ================== 执行 BM25 搜索和 Dense 搜索 ==================
     query_text = "请详细描述完整的RAG系统架构，包括主要组件和数据流向"

@@ -19,6 +19,7 @@ __all__ = [
     "FileChunksCRUD",
     "UserCRUD",
     "FileStorageCRUD",
+    "RagChunksCRUD",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -28,6 +29,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "FileChunksCRUD": "app.crud.file_chunks_crud:FileChunksCRUD",
     "UserCRUD": "app.crud.user_crud:UserCRUD",
     "FileStorageCRUD": "app.crud.file_storage_crud:FileStorageCRUD",
+    "RagChunksCRUD": "app.crud.rag_chunks_crud:RagChunksCRUD",
 }
 
 
@@ -54,3 +56,4 @@ if TYPE_CHECKING:
     from app.crud.file_chunks_crud import FileChunksCRUD
     from app.crud.user_crud import UserCRUD
     from app.crud.file_storage_crud import FileStorageCRUD
+    from app.crud.rag_chunks_crud import RagChunksCRUD

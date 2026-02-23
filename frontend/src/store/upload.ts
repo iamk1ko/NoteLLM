@@ -4,6 +4,7 @@ export type UploadTask = {
   id: string
   name: string
   size: number
+  contentType: string
   md5: string
   totalChunks: number
   uploadedChunks: number

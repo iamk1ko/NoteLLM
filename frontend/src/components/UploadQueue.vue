@@ -36,6 +36,11 @@ const statusLabel = (status: string) => {
           <span class="muted">{{ formatBytes(scope.row.size) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="类型" min-width="160">
+        <template #default="scope">
+          <span class="muted">{{ scope.row.contentType }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="进度" min-width="220">
         <template #default="scope">
           <el-progress :percentage="scope.row.progress" :stroke-width="10" />

@@ -25,3 +25,15 @@ export const formatDateTime = (value: string) => {
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 }
+
+export const getMimeType = (file: File) => {
+  if (file.type) return file.type
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.md') || name.endsWith('.markdown')) return 'text/markdown'
+  if (name.endsWith('.txt')) return 'text/plain'
+  if (name.endsWith('.pdf')) return 'application/pdf'
+  if (name.endsWith('.doc')) return 'application/msword'
+  if (name.endsWith('.docx'))
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  return 'application/octet-stream'
+}

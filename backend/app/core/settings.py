@@ -3,9 +3,11 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import List
+
 from app.core.logging import get_logger
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, model_validator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -51,19 +53,18 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # 说明：默认 extra 行为在不同版本/配置下可能是 forbid。
+        # 我们选择“显式声明需要的 env key”，比全局 ignore 更安全。
     )
 
     APP_NAME: str = "Pai-School Backend"
     API_V1_PREFIX: str = "/api/v1"
 
-    # Comma-separated list in env var; we parse it manually.
     CORS_ORIGINS: str = "*"
 
-    # External service (your BLSC proxy)
     BLSC_API_KEY: str | None = None
     BLSC_BASE_URL: str | None = None
 
-    # Database
     DB_DRIVER: str = "mysql+pymysql"
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
@@ -71,32 +72,39 @@ class Settings(BaseSettings):
     DB_USER: str = "root"
     DB_PASSWORD: str = "root"
     DATABASE_URL: str = ""
-    # logger.info(f"DATABASE_URL: {DATABASE_URL}")
 
-    # Logging
     LOG_LEVEL: str = "DEBUG"
 
-    # Redis (async)
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_MAX_CONNECTIONS: int = 20
 
-    # MinIO (HTTP)
     MINIO_ENDPOINT: str = "127.0.0.1:9000"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_SECURE: bool = False
 
-    # RabbitMQ (async)
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
 
     # Vectorization settings
-    # EMBEDDING_PROVIDER: str = "openai"
-    # EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1024
     VECTOR_COLLECTION: str = "knowledge_base"
     VECTOR_BATCH_SIZE: int = 64
     VECTOR_MEMORY_THRESHOLD_MB: int = 32
-    MILVUS_URI: str = "http://localhost:19530"
+
+    # Milvus
+    # 兼容两种配置方式：
+    # 1) 推荐：MILVUS_URI=http://localhost:19530
+    # 2) 兼容：MILVUS_HOST=127.0.0.1 + MILVUS_PORT=19530（旧配置/更直观）
+    MILVUS_URI: str = ""
+    MILVUS_HOST: str = Field(default="127.0.0.1")
+    MILVUS_PORT: int = Field(default=19530)
+
+    @model_validator(mode="after")
+    def _build_milvus_uri(self) -> "Settings":
+        # 如果显式配置了 MILVUS_URI，就直接用；否则由 host/port 组装。
+        if not (self.MILVUS_URI or "").strip():
+            self.MILVUS_URI = f"http://{self.MILVUS_HOST}:{self.MILVUS_PORT}"
+        return self
 
     def cors_origins_list(self) -> List[str]:
         raw = (self.CORS_ORIGINS or "").strip()
@@ -107,13 +115,6 @@ class Settings(BaseSettings):
         return [part.strip() for part in raw.split(",") if part.strip()]
 
     def database_url(self) -> str:
-        """返回数据库连接串。
-
-        说明：
-        - 优先使用 DATABASE_URL，便于快速切换环境
-        - 如果未配置 DATABASE_URL，则根据 DB_* 变量拼装
-        """
-
         raw = (self.DATABASE_URL or "").strip()
         if raw:
             return raw

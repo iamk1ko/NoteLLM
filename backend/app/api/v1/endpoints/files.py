@@ -45,7 +45,7 @@ async def upload_chunk(
         chunk_index=chunk_index,
         total_chunks=total_chunks,
         chunk_size=chunk_size,
-        total_size=total_size,
+        file_size=total_size,
         file_name=file_name,
         content_type=content_type,
         is_public=is_public,

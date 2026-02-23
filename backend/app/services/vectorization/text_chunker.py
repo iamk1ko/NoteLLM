@@ -5,7 +5,10 @@ from typing import Iterable
 from unstructured.chunking.title import chunk_by_title
 from unstructured.documents.elements import Element, ElementType
 
+from app.core.logging import get_logger
 from app.schemas import TextChunk, TextChunkMetadata
+
+logger = get_logger(__name__)
 
 
 class TextChunker:
@@ -13,10 +16,13 @@ class TextChunker:
         self.chunk_size = chunk_size if chunk_size > 0 else 1000
         self.overlap = min(max(0, overlap), max(0, self.chunk_size - 1))
 
-    def chunk_elements(self, elements: Iterable[Element]) -> Iterable[TextChunk]:
+    def chunk_elements_by_title(self, elements: Iterable[Element]) -> Iterable[TextChunk]:
         chunks: list[Element] = chunk_by_title(
             elements=elements, max_characters=self.chunk_size, overlap=self.overlap
         )
+
+        logger.info("文本 (按 title 进行划分) 划分完成，生成 {} 个文本块", len(chunks))
+
         for index, chunk in enumerate(chunks):
             orig_elements: list[Element] = (
                 list(chunk.metadata.orig_elements)
@@ -35,7 +41,10 @@ class TextChunker:
                 elif orig.category == ElementType.IMAGE and orig.metadata.image_url:
                     image_urls.append(orig.metadata.image_url)
 
-            metadata: TextChunkMetadata | None = (
+            # logger.info("生成文本块：chunk_id={}, file_name={}", chunk_id,
+            #             chunk.metadata.filename if chunk.metadata else "unknown")
+
+            metadata = (
                 TextChunkMetadata(
                     file_directory=chunk.metadata.file_directory,
                     filename=chunk.metadata.filename,

@@ -1,24 +1,25 @@
-from contextlib import asynccontextmanager
 import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
+from app.consumers.file_merge_listener import start_file_merge_listener
+from app.consumers.vectorize_listener import start_vectorize_listener
+from app.core.app_state import get_app_state
 from app.core.db import Base, init_db, get_engine, close_db
-from app.core.logging import get_logger, setup_logging
-from app.core.settings import get_settings
-from app.core.middleware import TraceIdMiddleware
-from app.core.providers import InfraProvider
 from app.core.exceptions import (
     http_exception_handler,
     unhandled_exception_handler,
     validation_exception_handler,
 )
+from app.core.logging import get_logger, setup_logging
+from app.core.middleware import TraceIdMiddleware
+from app.core.providers import InfraProvider
+from app.core.settings import get_settings
 from app.schemas.response import ApiResponse
-from app.consumers.file_merge_listener import start_file_merge_listener
-from app.core.app_state import get_app_state
 
 settings = get_settings()
 setup_logging(settings.LOG_LEVEL)
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     # 注意：如果你使用多 worker（例如 gunicorn/uvicorn --workers>1），每个 worker 都会启动一个监听器。
     # 生产环境通常将 worker 与 web 服务解耦：单独起一个 consumer 进程更稳。
     file_merge_task = start_file_merge_listener(app)
+    vectorize_task = start_vectorize_listener(app)
 
     print("\n" + "=" * 60)
     print("📚 API文档: http://localhost:8000/docs")
@@ -63,15 +65,18 @@ async def lifespan(app: FastAPI):
     yield
 
     # 优雅停止后台监听器
+    vectorize_task.cancel()
     file_merge_task.cancel()
-    try:
-        await file_merge_task
-    except asyncio.CancelledError:
-        # 正常：我们主动 cancel 了任务，属于预期行为
-        pass
-    except Exception:
-        # 非预期异常：不要影响整体关停，但建议记录
-        logger.exception("后台监听器退出时发生异常")
+
+    for task in (vectorize_task, file_merge_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            # 正常：我们主动 cancel 了任务，属于预期行为
+            pass
+        except Exception:
+            # 非预期异常：不要影响整体关停，但建议记录
+            logger.exception("后台监听器退出时发生异常")
 
     # 优先按统一入口释放 DB 资源
     close_db()

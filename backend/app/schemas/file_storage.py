@@ -48,7 +48,7 @@ class FileChunkUploadIn(BaseModel):
     chunk_index: int = Field(..., ge=0, description="分片索引，从0开始")
     total_chunks: int = Field(..., ge=1, description="总分片数")
     chunk_size: int = Field(..., ge=1, description="当前分片大小（字节）")
-    total_size: int = Field(..., ge=1, description="文件总大小（字节）")
+    file_size: int = Field(..., ge=1, description="文件总大小（字节）")
     file_name: str = Field(..., max_length=255, description="文件名称")
     content_type: str = Field(..., max_length=100, description="文件MIME类型")
     is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")

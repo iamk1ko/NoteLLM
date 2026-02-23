@@ -35,7 +35,13 @@ async def get_rabbitmq_connection() -> AbstractRobustConnection:
         return _rabbitmq_connection
 
     settings = get_settings()
-    _rabbitmq_connection = await aio_pika.connect_robust(settings.RABBITMQ_URL)
+    # register_return_callbacks=False：避免 robust connection 在关闭/重连时注册的 callback
+    # 走到 pydevd_asyncio 的 ensure_future 兼容路径（其内部调用了已移除的 asyncio.tasks._wrap_awaitable）。
+    _rabbitmq_connection = await aio_pika.connect_robust(
+        settings.RABBITMQ_URL,
+        heartbeat=30,
+        register_return_callbacks=False,
+    )
     return _rabbitmq_connection
 
 

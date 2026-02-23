@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { uploadChunk, listFiles } from '@/services/files'
 import { useUploadStore } from '@/store/upload'
 import { hashFile } from '@/utils/hash'
+import { getMimeType } from '@/utils/format'
 
 const uploadStore = useUploadStore()
 const isPublic = ref(false)
@@ -12,10 +13,12 @@ const chunkSize = 5 * 1024 * 1024
 const handleFiles = async (files: File[]) => {
   for (const file of files) {
     const taskId = `${file.name}-${file.size}-${Date.now()}`
+    const contentType = getMimeType(file)
     uploadStore.addTask({
       id: taskId,
       name: file.name,
       size: file.size,
+      contentType,
       md5: '',
       totalChunks: 0,
       uploadedChunks: 0,
@@ -42,10 +45,10 @@ const handleFiles = async (files: File[]) => {
           chunk_size: blob.size,
           total_size: file.size,
           file_name: file.name,
-          content_type: file.type || 'application/octet-stream',
+          content_type: contentType,
           is_public: isPublic.value,
           file_chunk: new File([blob], file.name, {
-            type: file.type || 'application/octet-stream',
+            type: contentType,
           }),
         })
 

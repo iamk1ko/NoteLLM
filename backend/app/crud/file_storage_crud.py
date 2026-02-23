@@ -322,7 +322,7 @@ class FileStorageCRUD:
     @staticmethod
     def update_file_status(
             db: Session, file_id: int, status: int
-    ) -> FileStorage | None:
+    ) -> type[FileStorage] | None:
         """更新文件状态。
 
         参数说明：

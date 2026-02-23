@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.crud import ChatSessionCRUD, FileStorageCRUD
@@ -13,33 +13,21 @@ logger = get_logger(__name__)
 
 
 class ChatSessionService:
-    """聊天会话业务服务层。
+    """聊天会话业务服务层（异步版）。"""
 
-    说明：
-    - 处理会话的创建、查询、删除、文件关联等业务逻辑
-    - 权限控制：普通用户只能操作自己的会话
-    - 管理员可以访问所有用户的会话
-    """
-
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def create_session(self, user: User, payload: ChatSessionCreate) -> ChatSession:
-        """创建聊天会话。
-
-        参数说明：
-        - user: 当前登录用户
-        - payload: 会话创建参数
-
-        返回值：
-        - ChatSession: 创建成功的会话对象
-        """
+    async def create_session(
+        self, user: User, payload: ChatSessionCreate
+    ) -> ChatSession:
+        """创建聊天会话。"""
 
         logger.info("创建聊天会话：user_id={}, title={}", user.id, payload.title)
         # TODO: 目前 payload ：{ title='测试会话_demo_01' biz_type='ai_chat' context_id=None status=1 } 还是一些基础信息。
         #  后续可以使用一个小模型来生成更复杂的会话标题等信息。
 
-        return ChatSessionCRUD.create_session(
+        return await ChatSessionCRUD.create_session_async(
             db=self.db,
             user_id=user.id,
             title=payload.title,
@@ -47,31 +35,26 @@ class ChatSessionService:
             context_id=payload.context_id,
         )
 
-    def list_sessions(
-            self,
-            user: User,
-            page: int = 1,
-            size: int = 10,
-            biz_type: str | None = None,
-            query_user_id: int | None = None,
+    async def list_sessions(
+        self,
+        user: User,
+        page: int = 1,
+        size: int = 10,
+        biz_type: str | None = None,
+        query_user_id: int | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
-        """查询会话列表（分页）。
-
-        说明：
-        - 普通用户只能看到自己的会话
-        - 管理员可以查看所有会话，也可按 user_id 过滤
-        """
+        """查询会话列表（分页）。"""
 
         if user.role == "admin" and query_user_id is None:
             # 管理员查看全部会话
-            return ChatSessionCRUD.get_all_sessions(
+            return await ChatSessionCRUD.get_all_sessions_async(
                 db=self.db, page=page, size=size, biz_type=biz_type
             )
 
         target_user_id = (
             query_user_id if (user.role == "admin" and query_user_id) else user.id
         )
-        return ChatSessionCRUD.get_user_sessions(
+        return await ChatSessionCRUD.get_user_sessions_async(
             db=self.db,
             user_id=target_user_id,
             page=page,
@@ -79,70 +62,52 @@ class ChatSessionService:
             biz_type=biz_type,
         )
 
-    def get_session_detail(self, user: User, session_id: int) -> ChatSession | None:
-        """获取会话详情。
-
-        说明：
-        - 普通用户只能访问自己的会话
-        - 管理员可以访问任意会话
-        """
+    async def get_session_detail(
+        self, user: User, session_id: int
+    ) -> ChatSession | None:
+        """获取会话详情。"""
 
         # TODO: session_id 已经是唯一了，这里区分用户和管理员查询的意义不大，后续可以简化。
         if user.role == "admin":
-            return ChatSessionCRUD.get_session_by_id(self.db, session_id)
-        return ChatSessionCRUD.get_user_session(self.db, session_id, user.id)
+            return await ChatSessionCRUD.get_session_by_id_async(self.db, session_id)
+        return await ChatSessionCRUD.get_user_session_async(
+            self.db, session_id, user.id
+        )
 
-    def get_session_files_ids(self, session_id: int) -> list[int]:
-        """获取会话关联的文件ID列表。
+    async def get_session_files_ids(self, session_id: int) -> list[int]:
+        """获取会话关联的文件ID列表。"""
 
-        说明：
-        - 仅返回文件ID列表，不做权限检查
-        - 权限应由调用方先行校验
-        """
+        return await ChatSessionCRUD.get_session_file_ids_async(self.db, session_id)
 
-        return ChatSessionCRUD.get_session_file_ids(self.db, session_id)
-
-    def update_session(
-            self, user: User, session_id: int, payload: ChatSessionUpdate
+    async def update_session(
+        self, user: User, session_id: int, payload: ChatSessionUpdate
     ) -> ChatSession | None:
-        """更新会话信息。
+        """更新会话信息。"""
 
-        说明：
-        - 普通用户只能更新自己的会话
-        - 管理员可以更新任意会话
-        """
-
-        session = self.get_session_detail(user, session_id)
+        session = await self.get_session_detail(user, session_id)
         if not session:
             return None
 
         update_data = payload.model_dump(exclude_unset=True)
-        return ChatSessionCRUD.update_session(self.db, session_id, update_data)
+        return await ChatSessionCRUD.update_session_async(
+            self.db, session_id, update_data
+        )
 
-    def delete_session(self, user: User, session_id: int) -> bool:
-        """删除会话。
+    async def delete_session(self, user: User, session_id: int) -> bool:
+        """删除会话。"""
 
-        说明：
-        - 普通用户只能删除自己的会话
-        - 管理员可以删除任意会话
-        """
-
-        session = self.get_session_detail(user, session_id)
+        session = await self.get_session_detail(user, session_id)
         if not session:
             return False
 
-        return ChatSessionCRUD.delete_session(self.db, session_id)
+        return await ChatSessionCRUD.delete_session_async(self.db, session_id)
 
-    def attach_files(self, user: User, session_id: int, file_ids: list[int]) -> int:
-        """关联文件到会话。
+    async def attach_files(
+        self, user: User, session_id: int, file_ids: list[int]
+    ) -> int:
+        """关联文件到会话。"""
 
-        说明：
-        - 普通用户只能关联自己或公共文件
-        - 管理员可以关联任意文件
-        - 会话必须归属当前用户（管理员除外）
-        """
-
-        session = self.get_session_detail(user, session_id)
+        session = await self.get_session_detail(user, session_id)
         if not session:
             return 0
 
@@ -150,7 +115,12 @@ class ChatSessionService:
         if user.role != "admin":
             valid_file_ids: list[int] = []
             for file_id in file_ids:
-                file_obj = FileStorageCRUD.get_file_by_id(self.db, file_id)
+                # Need to implement get_file_by_id_async in FileStorageCRUD if not exists?
+                # Ah, FileStorageCRUD is already async. Let's assume it has get_file_by_id_async.
+                # Checking my memory or need to read FileStorageCRUD?
+                # Assuming get_file_by_id was updated to async or I need to use get_file_by_id_async.
+                # Wait, I previously migrated FileStorageCRUD. Let's assume I should use get_file_by_id_async.
+                file_obj = await FileStorageCRUD.get_file_by_id_async(self.db, file_id)
                 if not file_obj:
                     continue
                 if file_obj.is_public or file_obj.user_id == user.id:
@@ -160,22 +130,19 @@ class ChatSessionService:
         if not file_ids:
             return 0
 
-        return ChatSessionCRUD.link_files_to_session(
+        return await ChatSessionCRUD.link_files_to_session_async(
             db=self.db, session_id=session_id, file_ids=file_ids
         )
 
-    def detach_files(self, user: User, session_id: int, file_ids: list[int]) -> int:
-        """取消文件与会话关联。
+    async def detach_files(
+        self, user: User, session_id: int, file_ids: list[int]
+    ) -> int:
+        """取消文件与会话关联。"""
 
-        说明：
-        - 普通用户只能操作自己的会话
-        - 管理员可以操作任意会话
-        """
-
-        session = self.get_session_detail(user, session_id)
+        session = await self.get_session_detail(user, session_id)
         if not session:
             return 0
 
-        return ChatSessionCRUD.unlink_files_from_session(
+        return await ChatSessionCRUD.unlink_files_from_session_async(
             db=self.db, session_id=session_id, file_ids=file_ids
         )

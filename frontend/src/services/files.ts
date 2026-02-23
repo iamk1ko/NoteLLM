@@ -1,98 +1,59 @@
-import http from './http'
-import type { ApiResponse } from './types'
+import http from "@/services/http";
+import type { ApiResponse, FileItem, PaginatedResponse, UploadProgress } from "@/services/types";
 
-export type FileStorage = {
-  id: number
-  user_id: number
-  filename: string
-  content_type: string
-  file_size: number
-  bucket_name: string
-  object_name: string
-  etag: string
-  is_public: boolean
-  status: number
-  created_at: string
-  updated_at: string
-}
+// File Service matching API Documentation 2.3
 
-export type FileListResponse = {
-  items: FileStorage[]
-  total: number
-  page: number
-  size: number
-}
+/**
+ * Get Files List (Paged)
+ * GET /files
+ */
+export const fetchFiles = async (params: { page?: number; size?: number; include_public?: boolean } = {}): Promise<PaginatedResponse<FileItem>> => {
+  const { data } = await http.get<ApiResponse<PaginatedResponse<FileItem>>>("/files", { params });
+  return data.data; 
+};
 
-export type UploadChunkPayload = {
-  file_md5: string
-  chunk_index: number
-  total_chunks: number
-  chunk_size: number
-  total_size: number
-  file_name: string
-  content_type: string
-  is_public: boolean
-  file_chunk: File
-}
+/**
+ * Get File Detail
+ * GET /files/{id}
+ */
+export const fetchFileDetail = async (id: number | string): Promise<FileItem> => {
+  const { data } = await http.get<ApiResponse<FileItem>>(`/files/${id}`);
+  return data.data;
+};
 
-export type UploadChunkResult = {
-  file_md5: string
-  chunk_md5: string | null
-  chunk_index: number
-  uploaded: boolean
-  retry_count?: number
-  error?: string
-}
+/**
+ * Simple File Upload
+ * POST /files
+ */
+export const uploadFile = async (
+  file: File,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<FileItem> => {
+  const formData = new FormData();
+  formData.append("file", file);
 
-export const uploadChunk = async (payload: UploadChunkPayload) => {
-  const formData = new FormData()
-  formData.append('file_md5', payload.file_md5)
-  formData.append('chunk_index', String(payload.chunk_index))
-  formData.append('total_chunks', String(payload.total_chunks))
-  formData.append('chunk_size', String(payload.chunk_size))
-  formData.append('total_size', String(payload.total_size))
-  formData.append('file_name', payload.file_name)
-  formData.append('content_type', payload.content_type)
-  formData.append('is_public', String(payload.is_public))
-  formData.append('file_chunk', payload.file_chunk)
-
-  const { data } = await http.post<ApiResponse<UploadChunkResult>>(
-    '/files/upload/chunk',
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+  const { data } = await http.post<ApiResponse<FileItem>>("/files", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress: (event) => {
+      if (!onProgress) return;
+      const total = event.total ?? 0;
+      const percent = total ? Math.round((event.loaded / total) * 100) : 0;
+      onProgress({ loaded: event.loaded, total, percent });
     },
-  )
-  return data.data
-}
+  });
+  return data.data;
+};
 
-export const getUploadComplete = async (fileId: number) => {
-  const { data } = await http.get<ApiResponse<FileStorage>>(`/files/upload/is_complete/${fileId}`)
-  return data.data
-}
+/**
+ * Delete File
+ * DELETE /files/{id}
+ */
+export const deleteFile = async (id: number | string): Promise<void> => {
+  await http.delete(`/files/${id}`);
+};
 
-export const listFiles = async (page = 1, size = 10, includePublic = true) => {
-  const { data } = await http.get<ApiResponse<FileListResponse>>('/files', {
-    params: { page, size, include_public: includePublic },
-  })
-  return data.data
-}
-
-export const getFileDetail = async (fileId: number) => {
-  const { data } = await http.get<ApiResponse<FileStorage>>(`/files/${fileId}`)
-  return data.data
-}
-
-export const listPublicFiles = async (page = 1, size = 10) => {
-  const { data } = await http.get<ApiResponse<FileListResponse>>('/files/public', {
-    params: { page, size },
-  })
-  return data.data
-}
-
-export const deleteFile = async (fileId: number) => {
-  const { data } = await http.delete<ApiResponse<{ success: boolean }>>(`/files/${fileId}`)
-  return data.data
-}
+// Public files if needed
+export const fetchPublicFiles = async (params: { page?: number; size?: number } = {}): Promise<PaginatedResponse<FileItem>> => {
+  const { data } = await http.get<ApiResponse<PaginatedResponse<FileItem>>>("/files/public", { params });
+  return data.data;
+};

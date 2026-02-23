@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import Generator
+from typing import Generator, AsyncGenerator
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+)
 
 from app.core.settings import get_settings
 from app.core.logging import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -34,6 +39,9 @@ class Base(DeclarativeBase):
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
 
+_async_engine: AsyncEngine | None = None
+_AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
+
 
 def _create_engine() -> Engine:
     """创建数据库引擎（内部函数）。
@@ -44,7 +52,7 @@ def _create_engine() -> Engine:
     """
 
     settings = get_settings()
-    database_url = settings.database_url()
+    database_url = settings.sync_database_url
     safe_url = make_url(database_url).render_as_string(hide_password=True)
 
     # 注意：这里用的是 loguru 风格的 {} 占位符（你的 logging.py 已适配）。
@@ -52,7 +60,23 @@ def _create_engine() -> Engine:
 
     return create_engine(
         database_url,
-        echo=False,
+        echo=settings.DB_ECHO,
+        future=True,
+        pool_pre_ping=True,
+    )
+
+
+def _create_async_engine() -> AsyncEngine:
+    """创建异步数据库引擎（内部函数）。"""
+    settings = get_settings()
+    async_database_url = settings.async_database_url
+    safe_url = make_url(async_database_url).render_as_string(hide_password=True)
+
+    logger.info("初始化异步数据库引擎：{}", safe_url)
+
+    return create_async_engine(
+        async_database_url,
+        echo=settings.DB_ECHO,
         future=True,
         pool_pre_ping=True,
     )
@@ -75,6 +99,22 @@ def init_db() -> None:
     )
 
 
+def init_async_db() -> None:
+    """显式初始化异步 DB 引擎与 SessionFactory。"""
+    global _async_engine, _AsyncSessionLocal
+    if _async_engine is not None and _AsyncSessionLocal is not None:
+        return
+
+    _async_engine = _create_async_engine()
+    _AsyncSessionLocal = async_sessionmaker(
+        bind=_async_engine,
+        class_=AsyncSession,
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+
 def get_engine() -> Engine:
     """获取（并在必要时创建）Engine。"""
 
@@ -85,6 +125,14 @@ def get_engine() -> Engine:
     return _engine
 
 
+def get_async_engine() -> AsyncEngine:
+    """获取（并在必要时创建）AsyncEngine。"""
+    if _async_engine is None:
+        init_async_db()
+    assert _async_engine is not None
+    return _async_engine
+
+
 def get_sessionmaker() -> sessionmaker[Session]:
     """获取（并在必要时创建）SessionLocal。"""
 
@@ -92,6 +140,14 @@ def get_sessionmaker() -> sessionmaker[Session]:
         init_db()
     assert _SessionLocal is not None
     return _SessionLocal
+
+
+def get_async_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """获取（并在必要时创建）AsyncSessionLocal。"""
+    if _AsyncSessionLocal is None:
+        init_async_db()
+    assert _AsyncSessionLocal is not None
+    return _AsyncSessionLocal
 
 
 def close_db() -> None:
@@ -104,9 +160,19 @@ def close_db() -> None:
     _SessionLocal = None
 
 
+async def close_async_db() -> None:
+    """应用关闭时释放异步连接池资源。"""
+    global _async_engine, _AsyncSessionLocal
+    if _async_engine is not None:
+        await _async_engine.dispose()
+    _async_engine = None
+    _AsyncSessionLocal = None
+
+
 # ------------------------------
 # FastAPI Depends
 # ------------------------------
+
 
 def get_db() -> Generator[Session, None, None]:
     """FastAPI 依赖注入：获取数据库会话。
@@ -118,23 +184,16 @@ def get_db() -> Generator[Session, None, None]:
     - 这里会在第一次调用时自动 init_db()，避免 import 阶段就连库。
     """
 
-    SessionLocal = get_sessionmaker()
-    db = SessionLocal()
+    SessionLocal_ = get_sessionmaker()
+    db = SessionLocal_()
     try:
         yield db
     finally:
         db.close()
 
 
-# ------------------------------
-# 兼容旧代码的导出（逐步迁移用）
-# ------------------------------
-# 你项目里某些地方（如消费者脚本）直接 import SessionLocal。
-# 为避免一次性大改，这里保留同名符号，但它会在首次使用时才真正初始化。
-class _LazySessionLocalProxy:
-    def __call__(self) -> Session:
-        return get_sessionmaker()()
-
-
-SessionLocal = _LazySessionLocalProxy()  # type: ignore
-
+async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI 依赖注入：获取异步数据库会话。"""
+    AsyncSessionLocal = get_async_sessionmaker()
+    async with AsyncSessionLocal() as session:
+        yield session

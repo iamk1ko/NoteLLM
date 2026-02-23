@@ -2,21 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
-from typing import Any, cast, Coroutine
+from typing import Any, cast
 
 from aio_pika.abc import AbstractChannel
 from minio import Minio
 from redis.asyncio import Redis
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.minio_client import MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
-from app.core.redis_client import (
-    FILE_STORAGE_METADATA_KEY,
-    UPLOAD_FILE_CHUNKS_BITMAP_KEY,
-)
+from app.core.constants import RedisKey
 from app.crud import FileChunksCRUD, FileStorageCRUD
 from app.models import FileChunksStatus, FileStorageStatus
 from app.models import FileStorage, User
@@ -47,7 +43,7 @@ class FileStorageService:
 
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         redis_client: Redis | None = None,
         minio_client: Minio | None = None,
         rabbitmq_channel: AbstractChannel | None = None,
@@ -64,7 +60,7 @@ class FileStorageService:
         self.minio = minio_client
         self.rabbitmq_channel = rabbitmq_channel
 
-    def save_file_metadata(
+    async def save_file_metadata(
         self,
         user: User,
         payload: FileSaveDTO,
@@ -83,7 +79,7 @@ class FileStorageService:
             payload.is_public,
         )
 
-        return FileStorageCRUD.create_file(
+        return await FileStorageCRUD.create_file_async(
             db=self.db,
             user_id=user.id,
             filename=payload.file_name,
@@ -116,8 +112,10 @@ class FileStorageService:
         temp_bucket = MINIO_BUCKET_TEMP
         final_bucket = MINIO_BUCKET_FINAL
 
-        bitmap_key = UPLOAD_FILE_CHUNKS_BITMAP_KEY.format(user.id, payload.file_md5)
-        file_storage_meta_key = FILE_STORAGE_METADATA_KEY.format(
+        bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(
+            user.id, payload.file_md5
+        )
+        file_storage_meta_key = RedisKey.FILE_STORAGE_METADATA.format(
             user.id, payload.file_md5
         )
 
@@ -129,13 +127,13 @@ class FileStorageService:
             existing = await redis_client.hget(file_storage_meta_key, "status")
         else:
             # 没有 Redis 时通过数据库兜底判断是否已有任务
-            existing_obj = FileStorageCRUD.get_file_by_object_name(
+            existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
                 self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
             )
             existing = "exists" if existing_obj else None
 
         if existing is not None and existing_obj is None:
-            existing_obj = FileStorageCRUD.get_file_by_object_name(
+            existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
                 self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
             )
 
@@ -152,7 +150,7 @@ class FileStorageService:
                     existing_obj.content_type = payload.content_type
                 if should_update_status:
                     existing_obj.status = FileStorageStatus.UPLOADING.value
-                self.db.commit()
+                await self.db.commit()
 
         # 第一片分片到达时创建原始文件元信息到 mysql 中
         if existing is None:
@@ -165,13 +163,13 @@ class FileStorageService:
                 is_public=payload.is_public,
                 status=FileStorageStatus.UPLOADING.value,
             )
-            self.save_file_metadata(
+            await self.save_file_metadata(
                 user=user, payload=file_save_dto, bucket_name=temp_bucket
             )
 
         # 2) 写入分片元信息（状态 0-上传中-UPLOADING）
         chunk_object_name = f"{payload.file_md5}/chunk_{payload.chunk_index:06d}"
-        FileChunksCRUD.create_chunk(
+        await FileChunksCRUD.create_chunk_async(
             db=self.db,
             file_md5=payload.file_md5,
             chunk_index=payload.chunk_index,
@@ -186,17 +184,35 @@ class FileStorageService:
         chunk_md5, retry_count = None, 0
         if self.minio is not None:
             try:
-                chunk_bytes = file_chunk.file.read()
+                # 使用流式读取计算 MD5，避免一次性加载到内存
+                md5_hash = hashlib.md5()
+                file_obj = file_chunk.file
+                file_obj.seek(0)
+                while chunk := file_obj.read(8192):  # 8KB 块
+                    md5_hash.update(chunk)
+                chunk_md5 = md5_hash.hexdigest()
 
-                chunk_md5, retry_count = await self._put_object_with_retry(
+                # 重置文件指针
+                file_obj.seek(0)
+
+                # 获取实际大小 (虽然 payload.chunk_size 应该一致，但保险起见)
+                # SpooledTemporaryFile 有时候没有 len()，所以用 seek/tell 或者信任 payload
+                # 这里假设 payload.chunk_size 是准确的，或者我们已经在上面读完了一遍
+                # 更稳妥的是用 tell()
+                file_obj.seek(0, 2)
+                actual_size = file_obj.tell()
+                file_obj.seek(0)
+
+                _, retry_count = await self._put_object_with_retry(
                     minio_client=self.minio,
                     temp_bucket=temp_bucket,
                     chunk_object_name=chunk_object_name,
                     payload=payload,
-                    chunk_bytes=chunk_bytes,
+                    file_obj=file_obj,
+                    length=actual_size,
                     max_retries=3,  # 最多重试3次
                 )
-                FileChunksCRUD.update_chunk_etag(
+                await FileChunksCRUD.update_chunk_etag_async(
                     self.db,
                     payload.file_md5,
                     payload.chunk_index,
@@ -211,17 +227,17 @@ class FileStorageService:
                         payload.file_md5,
                         payload.chunk_index,
                     )
-                    FileChunksCRUD.update_chunk_status(
+                    await FileChunksCRUD.update_chunk_status_async(
                         self.db,
                         payload.file_md5,
                         payload.chunk_index,
                         FileChunksStatus.FAILED.value,  # 标记分片失败
                     )
-                    file_obj = FileStorageCRUD.get_file_by_object_name(
+                    file_obj = await FileStorageCRUD.get_file_by_object_name_async(
                         self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
                     )
                     if file_obj:
-                        FileStorageCRUD.update_file_status(
+                        await FileStorageCRUD.update_file_status_async(
                             self.db,
                             file_id=file_obj.id,
                             status=FileStorageStatus.FAILED.value,  # 标记文件失败
@@ -235,9 +251,14 @@ class FileStorageService:
                         )
                     if self.minio is not None:
                         try:
-                            self.minio.remove_object(
-                                temp_bucket, chunk_object_name
-                            )  # 清理失败分片对象
+                            # MinIO remove_object needs to be offloaded too if we want to be pure async
+                            loop = asyncio.get_running_loop()
+                            await loop.run_in_executor(
+                                None,
+                                lambda: self.minio.remove_object(
+                                    temp_bucket, chunk_object_name
+                                ),
+                            )
                         except Exception:
                             logger.exception(
                                 "清理 MinIO 中失败分片对象失败：object_name={}",
@@ -297,7 +318,7 @@ class FileStorageService:
             )
 
         # 5) 更新分片状态为已上传 (UPLOADED)
-        FileChunksCRUD.update_chunk_status(
+        await FileChunksCRUD.update_chunk_status_async(
             db=self.db,
             file_md5=payload.file_md5,
             chunk_index=payload.chunk_index,
@@ -309,7 +330,9 @@ class FileStorageService:
             redis_client = cast(Any, self.redis)
             uploaded = await redis_client.bitcount(bitmap_key)
             # 校验：bitmap 完整 + 分片数量一致
-            chunk_count = FileChunksCRUD.count_chunks(self.db, payload.file_md5)
+            chunk_count = await FileChunksCRUD.count_chunks_async(
+                self.db, payload.file_md5
+            )
             if uploaded == payload.total_chunks and chunk_count == payload.total_chunks:
                 if self.rabbitmq_channel is not None:
                     import json
@@ -344,41 +367,47 @@ class FileStorageService:
         temp_bucket: str,
         chunk_object_name: str,
         payload,
-        chunk_bytes: bytes,
+        file_obj,
+        length: int,
         max_retries: int = 3,
-    ) -> tuple[str, int | Any]:
+    ) -> tuple[str | None, int]:
         """
-        返回: chunk_md5 (作为 etag)
-        说明:
-        - 在同一次请求中重试 max_retries 次
-        - 每失败一次就把 retry_count +1
-        - 超过阈值抛出最后一次异常
+        上传文件分片到 MinIO。
+        返回: chunk_md5 (占位，由外部计算), retry_count
         """
         retry_count = 0
-        chunk_md5 = hashlib.md5(chunk_bytes).hexdigest()
-
         last_exc: Exception | None = None
+        loop = asyncio.get_running_loop()
+
         for attempt in range(1, max_retries + 1):
             try:
-                minio_client.put_object(
-                    bucket_name=temp_bucket,
-                    object_name=chunk_object_name,
-                    data=io.BytesIO(chunk_bytes),
-                    length=len(chunk_bytes),
-                    content_type=payload.content_type,
+                # 每次重试前，必须要把 file_obj 指针重置回 0
+                if attempt > 1:
+                    file_obj.seek(0)
+
+                # 将阻塞的 MinIO 调用放入线程池执行
+                # 注意：file_obj 必须是线程安全的，UploadFile.file 是 SpooledTemporaryFile，通常是线程安全的
+                await loop.run_in_executor(
+                    None,
+                    lambda: minio_client.put_object(
+                        bucket_name=temp_bucket,
+                        object_name=chunk_object_name,
+                        data=file_obj,
+                        length=length,
+                        content_type=payload.content_type,
+                    ),
                 )
+
                 logger.info(
                     "分片上传成功：object_name={}, 共尝试了 {} 次。",
                     chunk_object_name,
                     attempt,
                 )
-                return chunk_md5, retry_count
+                # 返回 None 作为 chunk_md5，因为已经在外部计算并使用了
+                return None, retry_count
             except Exception as exc:
                 last_exc = exc
-
-                # 重试次数 +1
                 retry_count += 1
-                # 简单退避: 0.2s, 0.4s, 0.8s ...
                 if retry_count < max_retries:
                     await asyncio.sleep(0.2 * (2 ** (retry_count - 1)))
                     logger.warning(
@@ -387,7 +416,6 @@ class FileStorageService:
                         retry_count,
                     )
                     continue
-
                 raise
 
         if last_exc is not None:
@@ -398,7 +426,7 @@ class FileStorageService:
         """TODO: 查询完整文件是否已经完成上传，目前还是初步设计。
 
         说明：
-        - 若文件已完成上传，返回 FileStorage.status (0-上传中，1-已上传，2-已向量化，3-失败)
+        - 若文件已完成上传，返回 FileStorage.status (0-上传中，1-已上传，2-已完成向量化，3-失败)
         - 目前仅通过数据库中文件状态进行判断
         - 后续可结合 Redis 进行更精细的状态管理
         """
@@ -409,7 +437,7 @@ class FileStorageService:
             file_id,
         )
 
-        file_obj = FileStorageCRUD.get_user_file(self.db, file_id, user.id)
+        file_obj = await FileStorageCRUD.get_user_file_async(self.db, file_id, user.id)
         if not file_obj:
             raise ValueError("文件不存在或无权限")
 

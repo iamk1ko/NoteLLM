@@ -4,14 +4,15 @@ import asyncio
 import json
 from typing import Any, cast
 
-from app.core.db import SessionLocal
+from app.core.db import get_sessionmaker
 from app.core.logging import get_logger
 from app.core.minio_client import get_minio_client
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
     get_rabbitmq_connection,
 )
-from app.core.redis_client import get_redis_client, FILE_VECTORIZATION_TASK_STATUS
+from app.core.redis_client import get_redis_client
+from app.core.constants import RedisKey
 from app.core.settings import get_settings
 from app.services.vectorization_service import VectorizationService
 from app.services.vectorization.vector_store import MilvusVectorStore
@@ -20,7 +21,7 @@ logger = get_logger(__name__)
 
 
 async def _vectorize_task(payload: dict[str, Any]) -> None:
-    db = SessionLocal()
+    db = get_sessionmaker()()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
     file_md5 = "unknown"
@@ -32,7 +33,7 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
         content_type = payload.get("content_type") or ""
 
         task_status = await redis_client.get(
-            FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
+            RedisKey.FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
         )
         if task_status == "success":
             logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
@@ -45,25 +46,8 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
             dim=settings.EMBEDDING_DIM,
         )
 
-        # Milvus 的 collection 需要先创建好（且只能创建一次），才能插入数据。这里做个检查，确保 collection 已存在。
-        if not vector_store.collection_created:
-            is_created = vector_store.ensure_collection()
-            if not is_created:
-                logger.error(
-                    "Milvus collection 创建失败，无法执行向量化任务：collection={}, file_md5={}",
-                    settings.VECTOR_COLLECTION,
-                    file_md5,
-                )
-                return
-
-            create_index = vector_store.create_index(skip_if_exists=True)
-            if not create_index:
-                logger.error(
-                    "Milvus index 创建失败，无法执行向量化任务：collection={}, file_md5={}",
-                    settings.VECTOR_COLLECTION,
-                    file_md5,
-                )
-                return
+        # 确保集合已初始化 (创建或加载)
+        await vector_store.init_collection()
 
         service = VectorizationService(
             db=db,

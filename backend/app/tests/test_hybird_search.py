@@ -1,12 +1,11 @@
-import random
 from typing import Iterable
 
 import pytest
 from unstructured.documents.elements import Element
 
 from app.schemas import TextChunk, ChunkRecord
-from app.services.vectorization import MilvusVectorStore
 from app.services.vectorization import BgeM3Embedder, DocumentParser, TextChunker
+from app.services.vectorization import MilvusVectorStore
 
 
 @pytest.mark.integration
@@ -61,6 +60,28 @@ async def test_hybrid_search():
 
     # ================== 执行 BM25 搜索和 Dense 搜索 ==================
     query_text = "为什么先用ES，而不是直接用FAISS？"
+
+    embedder = BgeM3Embedder(model_name="BAAI/bge-m3", device="cpu", use_fp16=False)
+    vector = embedder.encode_queries(texts=[query_text])
+    dense_vector = vector.get("dense")[0]
+
+    res_bm25 = await client.search_bm25(query=query_text, k=1)
+    res_dense = await client.search_dense(query_vector=dense_vector, k=1)
+
+    print(res_bm25 or "没有 BM25 搜索结果")
+    print("\n\n======================")
+    print(res_dense or "没有 Dense 搜索结果")
+
+
+@pytest.mark.integration
+async def test_hybrid_search_2():
+    client = MilvusVectorStore(uri="http://localhost:19530", collection_name="knowledge_base", dim=1024)
+    # ================== 确保 Milvus collection 已创建 ==================
+    if not client.collection_created:
+        await client.create_collection(force_recreate=False)
+
+    # ================== 执行 BM25 搜索和 Dense 搜索 ==================
+    query_text = "请详细描述完整的RAG系统架构，包括主要组件和数据流向"
 
     embedder = BgeM3Embedder(model_name="BAAI/bge-m3", device="cpu", use_fp16=False)
     vector = embedder.encode_queries(texts=[query_text])

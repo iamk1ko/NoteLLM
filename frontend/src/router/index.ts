@@ -1,33 +1,26 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import UploadView from '@/views/UploadView.vue'
-import FilesView from '@/views/FilesView.vue'
-import SearchView from '@/views/SearchView.vue'
+import { createRouter, createWebHistory } from "vue-router";
 
-const routes = [
-  {
-    path: '/',
-    redirect: '/upload',
-  },
-  {
-    path: '/upload',
-    name: 'Upload',
-    component: UploadView,
-  },
-  {
-    path: '/files',
-    name: 'Files',
-    component: FilesView,
-  },
-  {
-    path: '/search',
-    name: 'Search',
-    component: SearchView,
-  },
-]
+import AccountView from "@/views/AccountView.vue";
+import ChatView from "@/views/ChatView.vue";
+import FileListView from "@/views/FileListView.vue";
+import NotFoundView from "@/views/NotFoundView.vue";
+import UploadView from "@/views/UploadView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
-  routes,
-})
+  routes: [
+    { path: "/", redirect: "/files" },
+    { path: "/upload", name: "upload", component: UploadView, meta: { title: "文件上传" } },
+    { path: "/files", name: "files", component: FileListView, meta: { title: "文档库" } },
+    {
+      path: "/chat/:id",
+      name: "chat",
+      component: ChatView,
+      meta: { title: "智能问答" }
+    },
+    { path: "/account", name: "account", component: AccountView, meta: { title: "账户管理" } },
+    { path: "/:pathMatch(.*)*", name: "notfound", component: NotFoundView, meta: { title: "404" } }
+  ]
+});
 
-export default router
+export default router;

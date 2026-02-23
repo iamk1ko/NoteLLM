@@ -1,31 +1,58 @@
-import { defineStore } from 'pinia'
-import type { FileStorage, FileListResponse } from '@/services/files'
+import { defineStore } from "pinia";
+import { fetchFileDetail, fetchFiles } from "@/services/files";
+import type { FileItem } from "@/services/types";
 
-type FilesState = {
-  items: FileStorage[]
-  total: number
-  page: number
-  size: number
-  loading: boolean
+/**
+ * Files Store (Updated for API 2.3)
+ */
+interface FilesState {
+  list: FileItem[]; // File List
+  detail: FileItem | null; // Current selected file detail (same as FileItem in new API)
+  loading: boolean;
+  pagination: {
+    page: number;
+    size: number;
+    total: number;
+  };
 }
 
-export const useFilesStore = defineStore('files', {
+export const useFilesStore = defineStore("files", {
   state: (): FilesState => ({
-    items: [],
-    total: 0,
-    page: 1,
-    size: 10,
+    list: [],
+    detail: null,
     loading: false,
+    pagination: {
+      page: 1,
+      size: 10,
+      total: 0
+    }
   }),
   actions: {
-    setList(payload: FileListResponse) {
-      this.items = payload.items
-      this.total = payload.total
-      this.page = payload.page
-      this.size = payload.size
+    /**
+     * Load File List (Paged)
+     */
+    async loadFiles(params: { page?: number; size?: number; include_public?: boolean } = {}) {
+      this.loading = true;
+      try {
+        const { items, total, page, size } = await fetchFiles(params);
+        this.list = items;
+        this.pagination = { page, size, total };
+      } finally {
+        this.loading = false;
+      }
     },
-    setLoading(value: boolean) {
-      this.loading = value
-    },
-  },
-})
+    /**
+     * Load Single File Detail
+     * @param id File ID
+     */
+    async loadDetail(id: number | string) {
+      this.loading = true;
+      this.detail = null; 
+      try {
+        this.detail = await fetchFileDetail(id);
+      } finally {
+        this.loading = false;
+      }
+    }
+  }
+});

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from typing import cast, Any
 from aio_pika.abc import AbstractRobustConnection
 from minio import Minio
 from redis.asyncio import Redis
@@ -12,8 +13,14 @@ from app.core.rabbitmq_client import (
     get_rabbitmq_queue_name,
     close_rabbitmq,
 )
-from app.core.minio_client import get_minio_client, get_minio_buckets, init_minio_buckets
+from app.core.minio_client import (
+    get_minio_client,
+    get_minio_buckets,
+    init_minio_buckets,
+)
 from app.core.logging import get_logger
+from app.services.vectorization.vector_store import MilvusVectorStore
+from app.core.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -30,6 +37,7 @@ class InfraProvider:
     redis: Redis | None = None
     minio: Minio | None = None
     rabbitmq: AbstractRobustConnection | None = None
+    milvus: MilvusVectorStore | None = None
 
     async def init(self) -> None:
         """初始化所有客户端。
@@ -38,6 +46,7 @@ class InfraProvider:
         - 这里“创建客户端对象并做必要的自检/初始化”，并把实例挂到 `app.state.infra`。
         - 注意：不要在模块 import 阶段做这些事（否则会产生导入副作用）。
         """
+        settings = get_settings()
 
         try:
             # redis.asyncio 客户端创建是同步的，不需要 await。
@@ -61,7 +70,21 @@ class InfraProvider:
             logger.error(f"初始化 RabbitMQ 客户端失败: {e}")
             self.rabbitmq = None
 
-        logger.info("基础设施客户端（Redis、MinIO、RabbitMQ）初始化完成")
+        try:
+            # 初始化 Milvus
+            self.milvus = MilvusVectorStore(
+                uri=settings.MILVUS_URI,
+                collection_name=settings.VECTOR_COLLECTION,
+                dim=settings.EMBEDDING_DIM,
+            )
+            # 启动时检查/创建集合
+            await self.milvus.init_collection()
+            logger.info("Milvus 客户端初始化完成")
+        except Exception as e:
+            logger.error(f"初始化 Milvus 客户端失败: {e}")
+            self.milvus = None
+
+        logger.info("基础设施客户端（Redis、MinIO、RabbitMQ、Milvus）初始化完成")
 
     async def self_check(self) -> dict[str, bool]:
         """启动自检，确认各服务可用。
@@ -76,12 +99,15 @@ class InfraProvider:
             "redis": False,
             "minio": False,
             "rabbitmq": False,
+            "milvus": False,
         }
 
         # Redis
         if self.redis is not None:
             try:
-                results["redis"] = bool(await self.redis.ping())
+                redis_client = cast(Any, self.redis)
+                pong = await redis_client.ping()
+                results["redis"] = bool(pong)
             except Exception:
                 results["redis"] = False
 
@@ -104,6 +130,13 @@ class InfraProvider:
             except Exception:
                 results["rabbitmq"] = False
 
+        # Milvus
+        if self.milvus is not None:
+            try:
+                results["milvus"] = await self.milvus.has_collection()
+            except Exception:
+                results["milvus"] = False
+
         return results
 
     async def close(self) -> None:
@@ -112,6 +145,10 @@ class InfraProvider:
         if self.redis is not None:
             await self.redis.aclose()
             logger.info("Redis 客户端连接已关闭")
+
+        if self.milvus is not None:
+            self.milvus.close()
+            logger.info("Milvus 客户端连接已关闭")
 
         # 统一从 rabbitmq_client 入口关闭（因为连接已做进程内缓存）
         await close_rabbitmq()

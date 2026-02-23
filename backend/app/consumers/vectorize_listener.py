@@ -25,9 +25,10 @@ from fastapi import FastAPI
 from app.core.app_state import get_app_state
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
-from app.core.db import SessionLocal
+from app.core.db import get_sessionmaker
 from app.core.minio_client import get_minio_client
-from app.core.redis_client import get_redis_client, FILE_VECTORIZATION_TASK_STATUS
+from app.core.redis_client import get_redis_client
+from app.core.constants import RedisKey
 from app.core.settings import get_settings
 from app.services.vectorization_service import VectorizationService
 from app.services.vectorization.vector_store import MilvusVectorStore
@@ -35,10 +36,12 @@ from app.services.vectorization.vector_store import MilvusVectorStore
 logger = get_logger(__name__)
 
 
-async def _vectorize_task(payload: dict[str, Any]) -> None:
+async def _vectorize_task(
+    payload: dict[str, Any], milvus_store: MilvusVectorStore
+) -> None:
     """执行单条向量化任务。"""
 
-    db = SessionLocal()
+    db = get_sessionmaker()()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
     file_md5 = "unknown"
@@ -51,46 +54,20 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
         content_type = payload.get("content_type") or ""
 
         task_status = await redis_client.get(
-            FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
+            RedisKey.FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
         )
         if task_status == "success":
             logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
             return
 
         settings = get_settings()
-        logger.debug("初始化 MilvusVectorStore，准备执行向量化任务：collection={}, file_md5={}",
-                     settings.VECTOR_COLLECTION, file_md5)
-        vector_store = MilvusVectorStore(
-            uri=settings.MILVUS_URI,
-            collection_name=settings.VECTOR_COLLECTION,
-            dim=settings.EMBEDDING_DIM,
-        )
 
-        # Milvus 的 collection 需要先创建好（且只能创建一次），才能插入数据。这里做个检查，确保 collection 已存在。
-        if not vector_store.collection_created:
-            is_created = await vector_store.create_collection()
-            if not is_created:
-                logger.error(
-                    "Milvus collection 创建失败，无法执行向量化任务：collection={}, file_md5={}",
-                    settings.VECTOR_COLLECTION,
-                    file_md5,
-                )
-                return
-
-            create_index = await vector_store.create_index(skip_if_exists=True)
-            if not create_index:
-                logger.error(
-                    "Milvus index 创建失败，无法执行向量化任务：collection={}, file_md5={}",
-                    settings.VECTOR_COLLECTION,
-                    file_md5,
-                )
-                return
-
+        # 使用传入的 milvus_store，假设已在应用启动时初始化完成
         service = VectorizationService(
             db=db,
             redis_client=redis_client,
             minio_client=minio_client,
-            vector_store=vector_store,
+            vector_store=milvus_store,
             memory_threshold_mb=settings.VECTOR_MEMORY_THRESHOLD_MB,
             vector_batch_size=settings.VECTOR_BATCH_SIZE,
         )
@@ -101,28 +78,30 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
             object_name=object_name,
             content_type=content_type,
         )
-        await vector_store.load_collection()
-        logger.info("向量化任务完成并加载 collection = {}, file_md5={}", settings.VECTOR_COLLECTION, file_md5)
+        logger.info("向量化任务完成, file_md5={}", file_md5)
     except Exception as e:
         logger.error("向量化任务消费失败：file_md5={}, error={}", file_md5, e)
     finally:
         db.close()
 
 
-async def _handle_message(message: AbstractIncomingMessage) -> None:
+async def _handle_message(
+    message: AbstractIncomingMessage, milvus_store: MilvusVectorStore
+) -> None:
     async with message.process():
         payload: dict[str, Any] = json.loads(message.body.decode("utf-8"))
-        await _vectorize_task(payload)
+        await _vectorize_task(payload, milvus_store)
 
 
 async def _consume_loop(app: FastAPI) -> None:
     state = get_app_state(app)
     infra = state.infra
-    if infra is None or infra.rabbitmq is None:
-        logger.warning("RabbitMQ 未初始化，向量化监听器不会启动")
+    if infra is None or infra.rabbitmq is None or infra.milvus is None:
+        logger.warning("RabbitMQ 或 Milvus 未初始化，向量化监听器不会启动")
         return
 
     connection = infra.rabbitmq
+    milvus_store = infra.milvus
     channel = await connection.channel()
     try:
         queue = await channel.declare_queue(
@@ -135,7 +114,7 @@ async def _consume_loop(app: FastAPI) -> None:
         async with queue.iterator() as queue_iter:
             try:
                 async for message in queue_iter:
-                    await _handle_message(message)
+                    await _handle_message(message, milvus_store)
             except asyncio.CancelledError:
                 logger.info("向量化监听器收到取消信号，准备退出")
                 raise

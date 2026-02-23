@@ -10,13 +10,14 @@ import aio_pika
 
 from app.core.logging import get_logger
 from app.core.minio_client import get_minio_client, get_minio_buckets
-from app.core.redis_client import get_redis_client, FILE_STORAGE_METADATA_KEY, UPLOAD_FILE_CHUNKS_BITMAP_KEY
+from app.core.redis_client import get_redis_client
+from app.core.constants import RedisKey
 from app.core.rabbitmq_client import (
     get_rabbitmq_connection,
     RABBITMQ_QUEUE_FILE_TASKS,
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
 )
-from app.core.db import SessionLocal
+from app.core.db import get_sessionmaker
 
 from app.crud import FileStorageCRUD, FileChunksCRUD
 from app.models import FileStorageStatus
@@ -43,7 +44,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
     minio_client = get_minio_client()
     temp_bucket, final_bucket = get_minio_buckets()
 
-    db = SessionLocal()
+    db = get_sessionmaker()()
     try:
         chunks = FileChunksCRUD.list_chunks(db, file_md5)
         if not chunks:
@@ -51,7 +52,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
             return
 
         # 从 Redis meta 中获取文件名
-        meta_key = FILE_STORAGE_METADATA_KEY.format(user_id, file_md5)
+        meta_key = RedisKey.FILE_STORAGE_METADATA.format(user_id, file_md5)
         file_name = await redis_client.hget(meta_key, "file_name")
         if not file_name:
             logger.error("无法获取文件名：file_md5={}", file_md5)
@@ -132,7 +133,9 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
         FileChunksCRUD.delete_chunks(db, file_md5)
 
         # 清理 Redis 中分片相关的元信息（如果有的话）
-        await redis_client.delete(UPLOAD_FILE_CHUNKS_BITMAP_KEY.format(user_id, file_md5))
+        await redis_client.delete(
+            RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(user_id, file_md5)
+        )
         logger.debug("已清理临时分片数据：file_md5={}", file_md5)
         db.close()
 

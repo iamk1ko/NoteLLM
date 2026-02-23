@@ -1,52 +1,57 @@
-# RAG 前端验证台
+# NoteLLM 前端
 
-快速验证后端 API 业务流程的 Vue3 前端项目。
+基于 Vue3 + TypeScript + Vite 构建的 NoteLLM 前端应用，支持文档上传、文件管理、智能问答与问答记录导出。
 
-## 技术栈
+## 功能模块
 
-- Vue3 + TypeScript
-- Vite
-- Element Plus
-- Pinia
-- Vue Router
-- ESLint + Prettier
+- 文件上传：支持 PDF / MD / Word / TXT，显示上传进度与反馈
+- 文件列表：展示文件名称、上传时间、大小与向量化状态
+- 文件详情：预览、向量化状态、问答记录与检索片段
+- 问答中心：按文件提问并查看相关片段
+- 问答导出：导出问答记录为 PDF（占位接口）
+- 账户模块：预留注册/登录/账户接口占位
 
-## 环境配置
+## 启动
 
-复制 `.env` 并根据实际后端地址调整：
-
-```
-VITE_API_BASE_URL=http://localhost:8000/api/v1
-VITE_API_TOKEN=Bearer dev-token
-```
-
-## 启动项目
-
-```
+```bash
 npm install
 npm run dev
 ```
 
-## 页面说明
+## 环境变量
 
-- 文件上传：分片上传、MD5 计算、实时进度
-- 文件列表：查看文件状态（上传中/已上传/已向量化/失败）
-- 检索验证：创建会话、发送消息、查看消息历史
+复制 `.env` 并按需修改：
 
-## 关键接口
+```
+VITE_API_BASE_URL=http://localhost:8000/api
+```
 
-- `POST /files/upload/chunk`
-- `GET /files/upload/is_complete/{file_id}`
-- `GET /files`
-- `DELETE /files/{file_id}`
-- `POST /sessions`
-- `GET /sessions`
-- `POST /sessions/{session_id}/messages`
-- `GET /sessions/{session_id}/messages`
-- `GET /health`
-- `GET /infra/demo`
+## API 占位说明
 
-## 注意事项
+| 模块 | 方法 | 路径 | 说明 |
+| --- | --- | --- | --- |
+| 文件列表 | GET | /files | 获取文件列表 |
+| 文件详情 | GET | /files/:id | 获取文件详情 |
+| 上传文件 | POST | /files | 上传文件（multipart/form-data） |
+| 删除文件 | DELETE | /files/:id | 删除文件 |
+| 问答 | POST | /qa | 提问（fileId 可选） |
+| 问答历史 | GET | /qa | 获取问答记录（fileId 可选） |
+| 问答导出 | POST | /export/qa | 导出问答记录 PDF |
+| 账户注册 | POST | /auth/register | 预留 |
+| 账户登录 | POST | /auth/login | 预留 |
+| 账户详情 | GET | /auth/profile | 预留 |
 
-- 后端接口默认需要 Authorization，请在 `.env` 中提供固定 Token。
-- 上传与向量化状态依赖后端任务队列与存储服务运行状态。
+## 目录结构
+
+```
+src
+  components
+  views
+  store
+  router
+  services
+  utils
+  assets
+  App.vue
+  main.ts
+```

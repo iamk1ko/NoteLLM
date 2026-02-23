@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.crud import UserCRUD
@@ -16,27 +16,22 @@ class UserService:
 
     Controller(API) 应尽量只做：参数校验、依赖注入、HTTP 错误映射。
     Service 负责：业务编排、日志、（可选）事务边界。
-
-    这里先按当前项目的同步 SQLAlchemy Session 实现；将来迁移 AsyncSession 时，
-    可以：
-    - 新增 AsyncUserCRUD / AsyncUserService 或把方法改成 async def
-    - 在 db 依赖里提供 get_async_db
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
 
-    def list_users(self) -> Sequence[User]:
+    async def list_users(self) -> Sequence[User]:
         logger.info("开始查询所有用户")
-        users = UserCRUD.list_users(self.db)
+        users = await UserCRUD.list_users_async(self.db)
         logger.info("查询完成，返回 {} 条用户记录", len(users))
         return users
 
-    def list_users_page(
-            self,
-            page: int,
-            size: int,
-            keyword: str | None = None,
+    async def list_users_page(
+        self,
+        page: int,
+        size: int,
+        keyword: str | None = None,
     ) -> tuple[Sequence[User], int]:
         """分页查询用户。
 
@@ -47,17 +42,19 @@ class UserService:
         """
 
         logger.info("分页查询用户：page={}, size={}, keyword={}", page, size, keyword)
-        items, total = UserCRUD.list_users_page(self.db, page, size, keyword)
+        items, total = await UserCRUD.list_users_page_async(
+            self.db, page, size, keyword
+        )
         logger.info("分页查询完成，返回 {} 条记录，总数 {}", len(items), total)
         return items, total
 
-    def get_user(self, user_id: int) -> User | None:
+    async def get_user(self, user_id: int) -> User | None:
         """获取用户详情。"""
 
         logger.info("查询用户详情：user_id={}", user_id)
-        return UserCRUD.get_user_by_id(self.db, user_id)
+        return await UserCRUD.get_user_by_id_async(self.db, user_id)
 
-    def create_user(self, payload) -> User:
+    async def create_user(self, payload) -> User:
         """创建用户。
 
         说明：
@@ -75,9 +72,9 @@ class UserService:
             avatar_file_id=payload.avatar_file_id,
             bio=payload.bio,
         )
-        return UserCRUD.create_user(self.db, user)
+        return await UserCRUD.create_user_async(self.db, user)
 
-    def update_user(self, user_id: int, payload) -> User | None:
+    async def update_user(self, user_id: int, payload) -> User | None:
         """更新用户。
 
         说明：
@@ -85,7 +82,7 @@ class UserService:
         - 只更新有传入的字段
         """
 
-        user = UserCRUD.get_user_by_id(self.db, user_id)
+        user = await UserCRUD.get_user_by_id_async(self.db, user_id)
         if not user:
             return None
 
@@ -93,13 +90,13 @@ class UserService:
         for key, value in update_data.items():
             setattr(user, key, value)
 
-        return UserCRUD.update_user(self.db, user)
+        return await UserCRUD.update_user_async(self.db, user)
 
-    def delete_user(self, user_id: int) -> bool:
+    async def delete_user(self, user_id: int) -> bool:
         """删除用户。"""
 
-        user = UserCRUD.get_user_by_id(self.db, user_id)
+        user = await UserCRUD.get_user_by_id_async(self.db, user_id)
         if not user:
             return False
-        UserCRUD.delete_user(self.db, user)
+        await UserCRUD.delete_user_async(self.db, user)
         return True

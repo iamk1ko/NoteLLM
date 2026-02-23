@@ -7,7 +7,7 @@ from typing import List
 from app.core.logging import get_logger
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, computed_field
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -26,7 +26,6 @@ class Settings(BaseSettings):
       - BLSC_API_KEY=...
       - BLSC_BASE_URL=https://...
         - DATABASE_URL=mysql+pymysql://user:password@127.0.0.1:3306/pai_school?charset=utf8mb4
-        - DB_DRIVER=mysql+pymysql
         - DB_HOST=127.0.0.1
         - DB_PORT=3306
         - DB_NAME=pai_school
@@ -55,6 +54,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         # 说明：默认 extra 行为在不同版本/配置下可能是 forbid。
         # 我们选择“显式声明需要的 env key”，比全局 ignore 更安全。
+        extra="ignore",
     )
 
     APP_NAME: str = "Pai-School Backend"
@@ -65,13 +65,13 @@ class Settings(BaseSettings):
     BLSC_API_KEY: str | None = None
     BLSC_BASE_URL: str | None = None
 
-    DB_DRIVER: str = "mysql+pymysql"
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
     DB_NAME: str = "pai_school"
     DB_USER: str = "root"
     DB_PASSWORD: str = "root"
     DATABASE_URL: str = ""
+    DB_ECHO: bool = False
 
     LOG_LEVEL: str = "DEBUG"
 
@@ -87,9 +87,23 @@ class Settings(BaseSettings):
 
     # Vectorization settings
     EMBEDDING_DIM: int = 1024
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
+    EMBEDDING_DEVICE: str = "cpu"
+
     VECTOR_COLLECTION: str = "knowledge_base"
     VECTOR_BATCH_SIZE: int = 64
     VECTOR_MEMORY_THRESHOLD_MB: int = 32
+
+    # Vector Store Config
+    VS_CONTENT_MAX_LEN: int = 4096
+    VS_SECTION_MAX_LEN: int = 512
+    VS_FILE_MD5_MAX_LEN: int = 64
+    VS_BATCH_SIZE: int = 100
+
+    # RAG Config
+    RAG_HISTORY_LIMIT: int = 8
+    RAG_CACHE_TTL: int = 300
+    RAG_RANKER_ALPHA: float = 0.7
 
     # Milvus
     # 兼容两种配置方式：
@@ -98,6 +112,26 @@ class Settings(BaseSettings):
     MILVUS_URI: str = ""
     MILVUS_HOST: str = Field(default="127.0.0.1")
     MILVUS_PORT: int = Field(default=19530)
+
+    @computed_field
+    @property
+    def sync_database_url(self) -> str:
+        """获取同步数据库连接字符串 (mysql+pymysql)。"""
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        return (
+            f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
+        )
+
+    @computed_field
+    @property
+    def async_database_url(self) -> str:
+        """获取异步数据库连接字符串 (mysql+aiomysql)。"""
+        # 如果环境变量里显式配了 async url (e.g. ASYNC_DATABASE_URL)，这里也可以读
+        # 目前简单起见，直接替换 driver
+        sync_url = self.sync_database_url
+        return sync_url.replace("mysql+pymysql", "mysql+aiomysql")
 
     @model_validator(mode="after")
     def _build_milvus_uri(self) -> "Settings":
@@ -113,15 +147,6 @@ class Settings(BaseSettings):
         if raw == "*":
             return ["*"]
         return [part.strip() for part in raw.split(",") if part.strip()]
-
-    def database_url(self) -> str:
-        raw = (self.DATABASE_URL or "").strip()
-        if raw:
-            return raw
-        return (
-            f"{self.DB_DRIVER}://{self.DB_USER}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
-        )
 
 
 @lru_cache

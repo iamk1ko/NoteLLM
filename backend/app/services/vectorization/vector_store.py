@@ -16,26 +16,34 @@ from pymilvus import (
 from pymilvus.milvus_client import IndexParams
 
 from app.core.logging import get_logger
+from app.core.constants import MilvusField
+from app.core.settings import get_settings
 from app.schemas import ChunkRecord
 from app.services.vectorization.embedder import BgeM3Embedder, Embedder
 
 logger = get_logger(__name__)
 
-CONTENT_MAX_LENGTH = 4096  # Milvus VARCHAR 字段最大长度限制
-SECTION_MAX_LENGTH = 512  # Milvus VARCHAR 字段最大长度限制，章节信息通常较短，但在部分文档中可能超过 255
-FILE_MD5_MAX_LENGTH = 64  # 文件MD5长度限制，通常为32字符，但留有余量以防止意外情况
+CONTENT_MAX_LENGTH = (
+    get_settings().VS_CONTENT_MAX_LEN
+)  # Milvus VARCHAR 字段最大长度限制
+SECTION_MAX_LENGTH = (
+    get_settings().VS_SECTION_MAX_LEN  # Milvus VARCHAR 字段最大长度限制，章节信息通常较短，但在部分文档中可能超过 255
+)
+FILE_MD5_MAX_LENGTH = (
+    get_settings().VS_FILE_MD5_MAX_LEN
+)  # 文件MD5长度限制，通常为32字符，但留有余量以防止意外情况
 
 
 class MilvusVectorStore:
     def __init__(
-            self,
-            *,
-            uri: str,
-            collection_name: str,
-            dim: int = 1024,
-            metric_type: str = "COSINE",
-            alias: str = "default",
-            embedder: Embedder | None = None,
+        self,
+        *,
+        uri: str,
+        collection_name: str,
+        dim: int = 1024,
+        metric_type: str = "COSINE",
+        alias: str = "default",
+        embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -49,28 +57,28 @@ class MilvusVectorStore:
         self.client = self._setup_milvus_client()
         self.embedder = self._setup_embedding_model()
 
-    def ensure_collection(self, *, force_recreate: bool = False) -> bool:
-        """同步场景下确保集合存在。
-
-        注意：本项目同时存在同步/异步调用路径。`create_collection()` 是 async，
-        但有些调用方（例如初始化阶段/测试）可能在同步上下文里使用。
-
-        这里做一个安全包装：
-        - 如果当前线程没有 event loop：直接 asyncio.run
-        - 如果已经在 event loop 内：返回 False，并让调用方走 async 版本
+    async def init_collection(self) -> None:
         """
-        import asyncio
-
+        Initialize the collection: create if not exists, otherwise load.
+        This should be called at application startup.
+        """
         try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+            exists = await self.has_collection()
+            if not exists:
+                logger.info(
+                    f"Collection {self.collection_name} does not exist. Creating..."
+                )
+                await self.create_collection()
+                # Create index immediately after creation if needed, or leave it to build_vector_index
+                # For now, we just ensure the collection exists.
+            else:
+                logger.info(f"Collection {self.collection_name} exists. Loading...")
+                await self.load_collection()
 
-        if loop is not None and loop.is_running():
-            # 在事件循环内不要强行 run_until_complete，避免死锁
-            return self.collection_created
-
-        return asyncio.run(self.create_collection(force_recreate=force_recreate))
+            self.collection_created = True
+        except Exception as e:
+            logger.error(f"Failed to initialize collection {self.collection_name}: {e}")
+            raise
 
     @staticmethod
     def _safe_truncate(text: Optional[str], max_length: int) -> str:
@@ -140,8 +148,14 @@ class MilvusVectorStore:
     def _setup_embedding_model(self) -> Optional[Embedder]:
         if self.embedder is not None:
             return self.embedder
-        logger.info("正在初始化 BGE-M3 嵌入模型...")
-        embedder = BgeM3Embedder(model_name="BAAI/bge-m3", device="cpu", use_fp16=False)
+
+        settings = get_settings()
+        logger.info(f"正在初始化 BGE-M3 嵌入模型: {settings.EMBEDDING_MODEL_NAME}...")
+        embedder = BgeM3Embedder(
+            model_name=settings.EMBEDDING_MODEL_NAME,
+            device=settings.EMBEDDING_DEVICE,
+            use_fp16=False,
+        )
         logger.info(f"嵌入模型初始化完成。密集向量维度: {embedder.dim}")
         if embedder.dim != self.dim:
             raise ValueError(
@@ -163,39 +177,41 @@ class MilvusVectorStore:
 
         fields = [
             FieldSchema(
-                name="pk",
+                name=MilvusField.PK,
                 dtype=DataType.INT64,
                 description="主键id",
                 is_primary=True,
                 auto_id=True,
             ),
-            FieldSchema(name="file_id", dtype=DataType.INT64, description="文件id"),
             FieldSchema(
-                name="file_md5",
+                name=MilvusField.FILE_ID, dtype=DataType.INT64, description="文件id"
+            ),
+            FieldSchema(
+                name=MilvusField.FILE_MD5,
                 dtype=DataType.VARCHAR,
                 max_length=FILE_MD5_MAX_LENGTH,
                 description="文件md5",
             ),
             FieldSchema(
-                name="chunk_index",
+                name=MilvusField.CHUNK_INDEX,
                 dtype=DataType.INT64,
                 description="文件块索引(防止大文件被切分成多个块时的重复)",
             ),
             FieldSchema(
-                name="page_no",
+                name=MilvusField.PAGE_NO,
                 dtype=DataType.INT64,
                 is_nullable=True,
                 description="页码",
             ),
             FieldSchema(
-                name="section",
+                name=MilvusField.SECTION,
                 dtype=DataType.VARCHAR,
                 max_length=SECTION_MAX_LENGTH,
                 is_nullable=True,
                 description="章节信息",
             ),
             FieldSchema(
-                name="content",
+                name=MilvusField.CONTENT,
                 dtype=DataType.VARCHAR,
                 max_length=CONTENT_MAX_LENGTH,
                 is_nullable=True,
@@ -205,18 +221,18 @@ class MilvusVectorStore:
                 analyzer_params=analyzer_params,
             ),
             FieldSchema(
-                name="sparse_vector",
+                name=MilvusField.SPARSE_VECTOR,
                 dtype=DataType.SPARSE_FLOAT_VECTOR,
                 description="文本块的稀疏向量表示",
             ),
             FieldSchema(
-                name="dense_vector",
+                name=MilvusField.DENSE_VECTOR,
                 dtype=DataType.FLOAT_VECTOR,
                 dim=self.dim,
                 description="文本块的稠密向量表示",
             ),
             FieldSchema(
-                name="metadata",
+                name=MilvusField.METADATA,
                 dtype=DataType.JSON,
                 is_nullable=True,
                 description="其他元信息(可选)",
@@ -226,10 +242,12 @@ class MilvusVectorStore:
         # 利用 Milvus 的 Function 定义 BM25 函数，输入为文本内容，输出为稀疏向量。这样可以在 Milvus 内部直接使用 BM25 进行相似度搜索，无需在应用层进行额外处理。
         bm25_function = Function(
             name="text_bm25_emb",
-            input_field_names=["content"],  # 输入字段为"content"，即文本内容
+            input_field_names=[
+                MilvusField.CONTENT
+            ],  # 输入字段为MilvusField.CONTENT，即文本内容
             output_field_names=[
-                "sparse_vector"
-            ],  # 输出字段为"sparse_vector"，即 BM25 转换后的稀疏向量
+                MilvusField.SPARSE_VECTOR
+            ],  # 输出字段为MilvusField.SPARSE_VECTOR，即 BM25 转换后的稀疏向量
             function_type=FunctionType.BM25,
             description="BM25 函数，用于将文本内容转换为稀疏向量，以支持基于 BM25 的相似度搜索",
         )
@@ -238,7 +256,9 @@ class MilvusVectorStore:
             fields, functions=[bm25_function], description="知识库向量数据表"
         )
 
-        logger.info("集合 schema 创建完成，包含字段: {}", [field.name for field in fields])
+        logger.info(
+            "集合 schema 创建完成，包含字段: {}", [field.name for field in fields]
+        )
         return schema
 
     async def create_collection(self, force_recreate: bool = False) -> bool:
@@ -257,7 +277,9 @@ class MilvusVectorStore:
             if await self._maybe_await(client.has_collection(self.collection_name)):
                 if force_recreate:
                     logger.info(f"删除已存在的集合: {self.collection_name}")
-                    await self._maybe_await(client.drop_collection(self.collection_name))
+                    await self._maybe_await(
+                        client.drop_collection(self.collection_name)
+                    )
                 else:
                     logger.info(f"集合 {self.collection_name} 已存在")
                     self.collection_created = True
@@ -312,7 +334,7 @@ class MilvusVectorStore:
                 client.prepare_index_params()
             )
             index_params.add_index(
-                field_name="sparse_vector",
+                field_name=MilvusField.SPARSE_VECTOR,
                 index_name="sparse_vector_bm25_index",
                 index_type="SPARSE_INVERTED_INDEX",
                 metric_type="BM25",
@@ -324,7 +346,7 @@ class MilvusVectorStore:
             )
 
             index_params.add_index(
-                field_name="dense_vector",
+                field_name=MilvusField.DENSE_VECTOR,
                 index_name="dense_vector_hnsw_index",
                 index_type="HNSW",
                 metric_type="COSINE",
@@ -386,24 +408,28 @@ class MilvusVectorStore:
             for i, chunk in enumerate(chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
-                    "file_id": chunk.file_id,
-                    "file_md5": self._safe_truncate(
+                    MilvusField.FILE_ID: chunk.file_id,
+                    MilvusField.FILE_MD5: self._safe_truncate(
                         chunk.file_md5, FILE_MD5_MAX_LENGTH
                     ),
-                    "chunk_index": chunk.chunk_index,
-                    "page_no": chunk.page_no or 0,
-                    "section": self._safe_truncate(chunk.section, SECTION_MAX_LENGTH),
-                    "content": self._safe_truncate(chunk.content, CONTENT_MAX_LENGTH),
-                    "dense_vector": dense_vector,
-                    "metadata": chunk.metadata or {},
+                    MilvusField.CHUNK_INDEX: chunk.chunk_index,
+                    MilvusField.PAGE_NO: chunk.page_no or 0,
+                    MilvusField.SECTION: self._safe_truncate(
+                        chunk.section, SECTION_MAX_LENGTH
+                    ),
+                    MilvusField.CONTENT: self._safe_truncate(
+                        chunk.content, CONTENT_MAX_LENGTH
+                    ),
+                    MilvusField.DENSE_VECTOR: dense_vector,
+                    MilvusField.METADATA: chunk.metadata or {},
                 }
                 entities.append(entity)
 
             # 4. 批量插入数据
             logger.info("正在插入向量数据...")
-            batch_size = 100
+            batch_size = get_settings().VS_BATCH_SIZE
             for i in range(0, len(entities), batch_size):
-                batch = entities[i: i + batch_size]
+                batch = entities[i : i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -444,12 +470,6 @@ class MilvusVectorStore:
         Returns:
             是否添加成功
         """
-        # 自动确保集合存在（首次写入时）
-        if not self.collection_created:
-            ok = await self.create_collection(force_recreate=False)
-            if not ok:
-                raise ValueError("请先构建向量索引")
-
         logger.info(f"正在添加 {len(new_chunks)} 个新文档到索引...")
 
         try:
@@ -463,16 +483,20 @@ class MilvusVectorStore:
             for i, chunk in enumerate(new_chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
-                    "file_id": chunk.file_id,
-                    "file_md5": self._safe_truncate(
+                    MilvusField.FILE_ID: chunk.file_id,
+                    MilvusField.FILE_MD5: self._safe_truncate(
                         chunk.file_md5, FILE_MD5_MAX_LENGTH
                     ),
-                    "chunk_index": chunk.chunk_index,
-                    "page_no": chunk.page_no or 0,
-                    "section": self._safe_truncate(chunk.section, SECTION_MAX_LENGTH),
-                    "content": self._safe_truncate(chunk.content, CONTENT_MAX_LENGTH),
-                    "dense_vector": dense_vector,
-                    "metadata": chunk.metadata or {},
+                    MilvusField.CHUNK_INDEX: chunk.chunk_index,
+                    MilvusField.PAGE_NO: chunk.page_no or 0,
+                    MilvusField.SECTION: self._safe_truncate(
+                        chunk.section, SECTION_MAX_LENGTH
+                    ),
+                    MilvusField.CONTENT: self._safe_truncate(
+                        chunk.content, CONTENT_MAX_LENGTH
+                    ),
+                    MilvusField.DENSE_VECTOR: dense_vector,
+                    MilvusField.METADATA: chunk.metadata or {},
                 }
                 entities.append(entity)
 
@@ -491,17 +515,15 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-            self,
-            *,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query_vector: list[float],
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        if not self.collection_created:
-            raise ValueError("请先构建或加载向量索引")
-
         try:
             filter_expr = self._build_filter_expr(filters)
+
             search_params = {
                 "metric_type": "COSINE",
                 "params": {"ef": 64},
@@ -510,17 +532,17 @@ class MilvusVectorStore:
             search_kwargs = {
                 "collection_name": self.collection_name,
                 "data": [query_vector],
-                "anns_field": "dense_vector",
+                "anns_field": MilvusField.DENSE_VECTOR.value,
                 "limit": k,
                 "output_fields": [
-                    "pk",
-                    "file_id",
-                    "file_md5",
-                    "chunk_index",
-                    "page_no",
-                    "section",
-                    "content",
-                    "metadata",
+                    MilvusField.PK,
+                    MilvusField.FILE_ID,
+                    MilvusField.FILE_MD5,
+                    MilvusField.CHUNK_INDEX,
+                    MilvusField.PAGE_NO,
+                    MilvusField.SECTION,
+                    MilvusField.CONTENT,
+                    MilvusField.METADATA,
                 ],
                 "search_params": search_params,
             }
@@ -536,32 +558,30 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-            self,
-            *,
-            query: str,
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query: str,
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        if not self.collection_created:
-            raise ValueError("请先构建或加载向量索引")
-
         try:
             filter_expr = self._build_filter_expr(filters)
+
             search_params = {"metric_type": "BM25", "params": {}}
             search_kwargs = {
                 "collection_name": self.collection_name,
                 "data": [query],
-                "anns_field": "sparse_vector",
+                "anns_field": MilvusField.SPARSE_VECTOR.value,
                 "limit": k,
                 "output_fields": [  # 检索到后需要返回这些字段以供后续使用
-                    "pk",
-                    "file_id",
-                    "file_md5",
-                    "chunk_index",
-                    "page_no",
-                    "section",
-                    "content",
-                    "metadata",
+                    MilvusField.PK,
+                    MilvusField.FILE_ID,
+                    MilvusField.FILE_MD5,
+                    MilvusField.CHUNK_INDEX,
+                    MilvusField.PAGE_NO,
+                    MilvusField.SECTION,
+                    MilvusField.CONTENT,
+                    MilvusField.METADATA,
                 ],
                 "search_params": search_params,
             }
@@ -577,13 +597,13 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-            self,
-            *,
-            query: str,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
-            alpha: float = 0.7,
+        self,
+        *,
+        query: str,
+        query_vector: list[float],
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
+        alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
         dense_results = await self.search_dense(
             query_vector=query_vector, k=k, filters=filters
@@ -593,9 +613,9 @@ class MilvusVectorStore:
         merged: dict[str, Dict[str, Any]] = {}
 
         def merge(result: Dict[str, Any], score_key: str) -> None:
-            meta = result.get("metadata", {})
-            file_id = meta.get("file_id")
-            chunk_index = meta.get("chunk_index")
+            meta = result.get(MilvusField.METADATA, {})
+            file_id = meta.get(MilvusField.FILE_ID)
+            chunk_index = meta.get(MilvusField.CHUNK_INDEX)
             key = (
                 f"{file_id}:{chunk_index}"
                 if file_id is not None
@@ -655,15 +675,19 @@ class MilvusVectorStore:
                 result = {
                     "id": hit.get("id") if isinstance(hit, dict) else None,
                     "score": hit.get("distance") if isinstance(hit, dict) else None,
-                    "text": entity.get("content"),
-                    "metadata": {
-                        "file_id": entity.get("file_id"),
-                        "file_md5": entity.get("file_md5"),
-                        "chunk_index": entity.get("chunk_index"),
-                        "page_no": entity.get("page_no"),
-                        "section": self._preview_truncate(entity.get("section"), 50),
-                        "content": self._preview_truncate(entity.get("content"), 100),
-                        "metadata": entity.get("metadata"),
+                    "text": entity.get(MilvusField.CONTENT),
+                    MilvusField.METADATA: {
+                        MilvusField.FILE_ID: entity.get(MilvusField.FILE_ID),
+                        MilvusField.FILE_MD5: entity.get(MilvusField.FILE_MD5),
+                        MilvusField.CHUNK_INDEX: entity.get(MilvusField.CHUNK_INDEX),
+                        MilvusField.PAGE_NO: entity.get(MilvusField.PAGE_NO),
+                        MilvusField.SECTION: self._preview_truncate(
+                            entity.get(MilvusField.SECTION), 50
+                        ),
+                        MilvusField.CONTENT: self._preview_truncate(
+                            entity.get(MilvusField.CONTENT), 100
+                        ),
+                        MilvusField.METADATA: entity.get(MilvusField.METADATA),
                     },
                 }
                 formatted_results.append(result)

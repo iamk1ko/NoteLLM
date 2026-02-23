@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.db import get_async_db
 from app.dependencies.auth import get_current_user
 from app.schemas.chat_message import (
     ChatMessageCreate,
@@ -21,20 +21,17 @@ router = APIRouter(tags=["chat_messages"])
     "/sessions/{session_id}/messages",
     response_model=ApiResponse[ChatMessageOut],
 )
-def send_message(
-        session_id: int,
-        payload: ChatMessageCreate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+async def send_message(
+    session_id: int,
+    payload: ChatMessageCreate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatMessageOut]:
-    """发送消息。
+    """发送消息。"""
 
-    说明：
-    - 普通用户只能在自己的会话中发送消息
-    - 管理员可以在任何会话中发送消息
-    """
-
-    message = ChatMessageService(db).send_message(current_user, session_id, payload)
+    message = await ChatMessageService(db).send_message(
+        current_user, session_id, payload
+    )
 
     if not message:
         # TODO: 后期可以服务降级处理，比如返回一个默认回复
@@ -47,16 +44,16 @@ def send_message(
     "/sessions/{session_id}/messages",
     response_model=ApiResponse[ChatMessageListResponse],
 )
-def get_message_history(
-        session_id: int,
-        page: int = Query(1, ge=1, description="页码，从 1 开始"),
-        size: int = Query(20, ge=1, le=200, description="每页数量"),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+async def get_message_history(
+    session_id: int,
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(20, ge=1, le=200, description="每页数量"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatMessageListResponse]:
     """查询消息历史（分页）。"""
 
-    items, total = ChatMessageService(db).get_message_history(
+    items, total = await ChatMessageService(db).get_message_history(
         current_user, session_id, page=page, size=size
     )
     payload = ChatMessageListResponse(

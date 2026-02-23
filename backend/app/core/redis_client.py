@@ -4,6 +4,7 @@ import redis.asyncio as redis
 from redis.asyncio import Redis
 
 from app.core.settings import get_settings
+from app.core.constants import RedisKey
 
 """
 FILE_STORAGE_METADATA_KEY: 
@@ -25,27 +26,18 @@ FILE_VECTORIZATION_TASK_STATUS:
         - 当向量化任务完成后，状态更新为 `success` 或 `failed`。
         - 在接收到新的向量化请求时，后端可以先检查 Redis 中的状态，如果已经是 `success` 则直接返回结果
 """
-FILE_STORAGE_METADATA_KEY: str = (
-    "file_storage:meta:{}:{}"  # 格式化参数：user_id, file_md5
-)
-UPLOAD_FILE_CHUNKS_BITMAP_KEY: str = (
-    "upload:bitmap:{}:{}"  # 格式化参数：user_id, file_md5
-)
-FILE_VECTORIZATION_TASK_STATUS: str = "vector:task:{}"  # 格式化参数：file_md5
-FILE_VECTORIZATION_TASK_ERROR: str = "vector:task:error:{}"  # 格式化参数：file_md5
-FILE_VECTORIZATION_TASK_STAGE: str = "vector:task:stage:{}"  # 格式化参数：file_md5
-FILE_VECTORIZATION_TASK_ERROR_CODE: str = (
-    "vector:task:error:code:{}"  # 格式化参数：file_md5
-)
-FILE_VECTORIZATION_TASK_ERROR_MESSAGE: str = (
-    "vector:task:error:message:{}"  # 格式化参数：file_md5
-)
-FILE_VECTORIZATION_TASK_RETRYABLE: str = (
-    "vector:task:retryable:{}"  # 格式化参数：file_md5
-)
-FILE_VECTORIZATION_TASK_UPDATED_AT: str = (
-    "vector:task:updated_at:{}"  # 格式化参数：file_md5
-)
+# Deprecated: Use RedisKey.FILE_STORAGE_METADATA instead
+FILE_STORAGE_METADATA_KEY: str = RedisKey.FILE_STORAGE_METADATA.value
+# Deprecated: Use RedisKey.UPLOAD_FILE_CHUNKS_BITMAP instead
+UPLOAD_FILE_CHUNKS_BITMAP_KEY: str = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.value
+# Deprecated: Use RedisKey.FILE_VECTORIZATION_TASK_STATUS instead
+FILE_VECTORIZATION_TASK_STATUS: str = RedisKey.FILE_VECTORIZATION_TASK_STATUS.value
+FILE_VECTORIZATION_TASK_ERROR: str = RedisKey.FILE_VECTORIZATION_TASK_ERROR.value
+FILE_VECTORIZATION_TASK_STAGE: str = RedisKey.FILE_VECTORIZATION_TASK_STAGE.value
+FILE_VECTORIZATION_TASK_ERROR_CODE: str = RedisKey.FILE_VECTORIZATION_TASK_ERROR_CODE.value
+FILE_VECTORIZATION_TASK_ERROR_MESSAGE: str = RedisKey.FILE_VECTORIZATION_TASK_ERROR_MESSAGE.value
+FILE_VECTORIZATION_TASK_RETRYABLE: str = RedisKey.FILE_VECTORIZATION_TASK_RETRYABLE.value
+FILE_VECTORIZATION_TASK_UPDATED_AT: str = RedisKey.FILE_VECTORIZATION_TASK_UPDATED_AT.value
 
 
 def get_redis_client() -> Redis:
@@ -53,7 +45,7 @@ def get_redis_client() -> Redis:
 
     说明（很关键）：
     - 这个函数只是“构造客户端对象/连接池配置”，通常不会在这里立刻发起网络连接。
-    - 真实的网络连接一般发生在你第一次执行命令时（比如 `await client.ping()`）。
+    - 真实的网络连接一般发生在你第一次执行命令时（比如 `await client.ping()`).
     - 因此它是“无副作用”的，适合在 lifespan 中创建并缓存。
 
     连接信息来自：Settings.REDIS_URL

@@ -4,9 +4,10 @@ from collections.abc import Sequence
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models import FileStorage, ChatSessionFile
+from app.models import FileStorage, ChatSessionFile, FileStorageStatus
 
 logger = get_logger(__name__)
 
@@ -53,16 +54,16 @@ class FileStorageCRUD:
 
     @staticmethod
     def create_file(
-            db: Session,
-            user_id: int,
-            filename: str,
-            content_type: str,
-            file_size: int,
-            bucket_name: str,
-            object_name: str,
-            etag: str | None = None,
-            is_public: bool = False,
-            status: int = 1,
+        db: Session,
+        user_id: int,
+        filename: str,
+        content_type: str,
+        file_size: int,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+        is_public: bool = False,
+        status: int = 1,
     ) -> FileStorage:
         """创建文件存储记录。
 
@@ -115,12 +116,53 @@ class FileStorageCRUD:
         return file_storage
 
     @staticmethod
+    async def create_file_async(
+        db: AsyncSession,
+        user_id: int,
+        filename: str,
+        content_type: str,
+        file_size: int,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+        is_public: bool = False,
+        status: int = 1,
+    ) -> FileStorage:
+        """异步创建文件存储记录。"""
+
+        file_storage = FileStorage(
+            user_id=user_id,
+            filename=filename,
+            content_type=content_type,
+            file_size=file_size,
+            bucket_name=bucket_name,
+            object_name=object_name,
+            etag=etag,
+            is_public=is_public,
+            status=status,
+        )
+
+        db.add(file_storage)
+        await db.commit()
+        await db.refresh(file_storage)
+
+        logger.info(
+            "异步创建文件存储记录：file_id={}, user_id={}, filename={}, is_public={}",
+            file_storage.id,
+            user_id,
+            filename,
+            is_public,
+        )
+
+        return file_storage
+
+    @staticmethod
     def get_user_files(
-            db: Session,
-            user_id: int,
-            page: int = 1,
-            size: int = 10,
-            include_public: bool = True,
+        db: Session,
+        user_id: int,
+        page: int = 1,
+        size: int = 10,
+        include_public: bool = True,
     ) -> tuple[Sequence[FileStorage], int]:
         """查询用户的文件列表（分页，可包含公共文件）。
 
@@ -142,7 +184,9 @@ class FileStorageCRUD:
         """
 
         # 构建查询条件：用户自己的文件 或 公共文件
-        stmt = select(FileStorage).where(FileStorage.status == 1)
+        stmt = select(FileStorage).where(
+            FileStorage.status == FileStorageStatus.EMBEDDED
+        )
 
         if include_public:
             stmt = stmt.where(
@@ -155,7 +199,9 @@ class FileStorageCRUD:
             stmt = stmt.where(FileStorage.user_id == user_id)
 
         # 查询总数
-        count_stmt = select(func.count(FileStorage.id)).where(FileStorage.status == 1)
+        count_stmt = select(func.count(FileStorage.id)).where(
+            FileStorage.status == FileStorageStatus.EMBEDDED
+        )
         if include_public:
             count_stmt = count_stmt.where(
                 or_(
@@ -186,6 +232,66 @@ class FileStorageCRUD:
         return files, total
 
     @staticmethod
+    async def get_user_files_async(
+        db: AsyncSession,
+        user_id: int,
+        page: int = 1,
+        size: int = 10,
+        include_public: bool = True,
+    ) -> tuple[Sequence[FileStorage], int]:
+        """异步查询用户的文件列表（分页，可包含公共文件）。"""
+
+        # 构建查询条件：用户自己的文件 或 公共文件
+        stmt = select(FileStorage).where(
+            FileStorage.status == FileStorageStatus.EMBEDDED
+        )
+
+        if include_public:
+            stmt = stmt.where(
+                or_(
+                    FileStorage.user_id == user_id,  # 用户的私有文件
+                    FileStorage.is_public == True,  # 公共文件
+                )
+            )
+        else:
+            stmt = stmt.where(FileStorage.user_id == user_id)
+
+        # 查询总数
+        count_stmt = select(func.count(FileStorage.id)).where(
+            FileStorage.status == FileStorageStatus.EMBEDDED
+        )
+        if include_public:
+            count_stmt = count_stmt.where(
+                or_(
+                    FileStorage.user_id == user_id,
+                    FileStorage.is_public == True,
+                    FileStorage.is_public == 1,
+                )
+            )
+        else:
+            count_stmt = count_stmt.where(FileStorage.user_id == user_id)
+
+        total = await db.scalar(count_stmt) or 0
+
+        # 分页查询
+        stmt = (
+            stmt.order_by(FileStorage.id.desc()).offset((page - 1) * size).limit(size)
+        )
+
+        result = await db.scalars(stmt)
+        files = result.all()
+
+        logger.debug(
+            "异步查询用户文件列表：user_id={}, total={}, page={}, size={}",
+            user_id,
+            total,
+            page,
+            size,
+        )
+
+        return files, total
+
+    @staticmethod
     def get_file_by_id(db: Session, file_id: int) -> FileStorage | None:
         """根据 ID 获取文件。
 
@@ -205,8 +311,15 @@ class FileStorageCRUD:
         return file
 
     @staticmethod
+    async def get_file_by_id_async(
+        db: AsyncSession, file_id: int
+    ) -> FileStorage | None:
+        """异步根据 ID 获取文件。"""
+        return await db.get(FileStorage, file_id)
+
+    @staticmethod
     def get_file_by_object_name(
-            db: Session, user_id: int, object_name: str
+        db: Session, user_id: int, object_name: str
     ) -> FileStorage | None:
         """通过对象名称查询文件记录。"""
 
@@ -218,12 +331,26 @@ class FileStorageCRUD:
         )
 
     @staticmethod
+    async def get_file_by_object_name_async(
+        db: AsyncSession, user_id: int, object_name: str
+    ) -> FileStorage | None:
+        """异步通过对象名称查询文件记录。"""
+
+        result = await db.scalar(
+            select(FileStorage).where(
+                FileStorage.user_id == user_id,
+                FileStorage.object_name == object_name,
+            )
+        )
+        return result
+
+    @staticmethod
     def update_file_upload_complete(
-            db: Session,
-            file_id: int,
-            bucket_name: str,
-            object_name: str,
-            status: int,
+        db: Session,
+        file_id: int,
+        bucket_name: str,
+        object_name: str,
+        status: int,
     ) -> None:
         """更新文件合并后的存储信息与状态。"""
 
@@ -236,28 +363,16 @@ class FileStorageCRUD:
         db.commit()
 
     @staticmethod
-    def get_user_file(db: Session, file_id: int, user_id: int) -> FileStorage | None:
-        """获取用户的文件（带权限检查）。
+    async def get_user_file_async(
+        db: AsyncSession, file_id: int, user_id: int
+    ) -> FileStorage | None:
+        """异步获取用户的文件（带权限检查）。"""
 
-        参数说明：
-        - db: 数据库会话
-        - file_id: 文件 ID
-        - user_id: 用户 ID
-
-        返回值：
-        - FileStorage | None: 文件对象或 None（不存在或无权限）
-
-        注意事项：
-        - 检查文件是否属于该用户或为公共文件
-        - 管理员需要使用 get_file_by_id 方法
-        - 此方法用于普通用户访问自己的文件或公共文件
-        """
-
-        file = db.scalar(
+        result = await db.scalar(
             select(FileStorage).where(
                 and_(
                     FileStorage.id == file_id,
-                    FileStorage.status == 1,
+                    FileStorage.status == FileStorageStatus.EMBEDDED,
                     or_(
                         FileStorage.user_id == user_id,  # 用户的私有文件
                         FileStorage.is_public == True,  # 公共文件
@@ -265,64 +380,48 @@ class FileStorageCRUD:
                 )
             )
         )
-        return file
+        return result
 
     @staticmethod
-    def get_public_files(
-            db: Session, page: int = 1, size: int = 10
+    async def get_public_files_async(
+        db: AsyncSession, page: int = 1, size: int = 10
     ) -> tuple[Sequence[FileStorage], int]:
-        """查询公共文件列表（分页）。
-
-        参数说明：
-        - db: 数据库会话
-        - page: 页码（从 1 开始）
-        - size: 每页数量
-
-        返回值：
-        - tuple: (文件列表, 总数量)
-
-        注意事项：
-        - 只返回 is_public=True 的文件
-        - 只返回 status=1 的文件（可用状态）
-        - 按 id 倒序排列（最新文件在前）
-        - 用于展示公共知识库
-        """
+        """异步查询公共文件列表（分页）。"""
 
         stmt = select(FileStorage).where(
             and_(
                 FileStorage.is_public == True,
-                FileStorage.status == 1,
+                FileStorage.status == FileStorageStatus.EMBEDDED,
             )
         )
 
         # 查询总数
-        total = (
-                db.scalar(
-                    select(func.count(FileStorage.id)).where(
-                        and_(
-                            FileStorage.is_public == True,
-                            FileStorage.status == 1,
-                        )
-                    )
-                )
-                or 0
+        count_stmt = select(func.count(FileStorage.id)).where(
+            and_(
+                FileStorage.is_public == True,
+                FileStorage.status == FileStorageStatus.EMBEDDED,
+            )
         )
+        total = (await db.scalar(count_stmt)) or 0
 
         # 分页查询
         stmt = (
             stmt.order_by(FileStorage.id.desc()).offset((page - 1) * size).limit(size)
         )
 
-        files = db.scalars(stmt).all()
+        result = await db.scalars(stmt)
+        files = result.all()
 
-        logger.debug("查询公共文件列表：total={}, page={}, size={}", total, page, size)
+        logger.debug(
+            "异步查询公共文件列表：total={}, page={}, size={}", total, page, size
+        )
 
         return files, total
 
     @staticmethod
     def update_file_status(
-            db: Session, file_id: int, status: int
-    ) -> type[FileStorage] | None:
+        db: Session, file_id: int, status: int
+    ) -> FileStorage | None:
         """更新文件状态。
 
         参数说明：
@@ -352,22 +451,26 @@ class FileStorageCRUD:
         return file
 
     @staticmethod
+    async def update_file_status_async(
+        db: AsyncSession, file_id: int, status: int
+    ) -> FileStorage | None:
+        """异步更新文件状态。"""
+
+        file = await db.get(FileStorage, file_id)
+        if not file:
+            return None
+
+        file.status = status
+        await db.commit()
+        await db.refresh(file)
+
+        logger.info("异步更新文件状态：file_id={}, status={}", file_id, status)
+
+        return file
+
+    @staticmethod
     def delete_file(db: Session, file_id: int) -> bool:
-        """删除文件（硬删除）。
-
-        参数说明：
-        - db: 数据库会话
-        - file_id: 文件 ID
-
-        返回值：
-        - bool: True 表示删除成功，False 表示文件不存在
-
-        注意事项：
-        - 硬删除（直接从数据库删除）
-        - 不检查权限（由调用方确保）
-        - 不实际删除 MinIO 中的文件（由调用方处理）
-        - 需要同时删除与会话的关联记录
-        """
+        """删除文件（硬删除）。"""
 
         file = db.get(FileStorage, file_id)
         if not file:
@@ -381,6 +484,30 @@ class FileStorageCRUD:
         db.commit()
 
         logger.info("删除文件：file_id={}", file_id)
+
+        return True
+
+    @staticmethod
+    async def delete_file_async(db: AsyncSession, file_id: int) -> bool:
+        """异步删除文件（硬删除）。"""
+
+        file = await db.get(FileStorage, file_id)
+        if not file:
+            return False
+
+        # 先删除与会话的关联记录
+        # db.query(...) 不支持 asyncio，需要用 execute(delete(...))
+        from sqlalchemy import delete
+
+        await db.execute(
+            delete(ChatSessionFile).where(ChatSessionFile.file_id == file_id)
+        )
+
+        # 再删除文件记录
+        await db.delete(file)
+        await db.commit()
+
+        logger.info("异步删除文件：file_id={}", file_id)
 
         return True
 
@@ -406,7 +533,7 @@ class FileStorageCRUD:
             select(FileStorage)
             .join(ChatSessionFile, FileStorage.id == ChatSessionFile.file_id)
             .where(ChatSessionFile.chat_session_id == session_id)
-            .where(FileStorage.status == 1)
+            .where(FileStorage.status == FileStorageStatus.EMBEDDED)
         ).all()
 
         logger.debug(

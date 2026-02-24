@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models import ChatSessionFile
@@ -312,6 +313,27 @@ class ChatSessionFileCRUD:
 
         logger.debug(
             "查询文件使用的会话 ID：file_id={}, count={}",
+            file_id,
+            len(session_ids),
+        )
+
+        return session_ids
+
+    @staticmethod
+    async def get_file_session_ids_async(
+        db: AsyncSession, file_id: int
+    ) -> Sequence[int]:
+        """异步获取文件被哪些会话使用。"""
+
+        result = await db.scalars(
+            select(ChatSessionFile.chat_session_id).where(
+                ChatSessionFile.file_id == file_id
+            )
+        )
+        session_ids = result.all()
+
+        logger.debug(
+            "查询文件使用的会话 ID（异步）：file_id={}, count={}",
             file_id,
             len(session_ids),
         )

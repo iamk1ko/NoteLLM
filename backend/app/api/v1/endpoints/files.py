@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+import json
+from typing import Any, cast
 from datetime import timedelta
 
 from fastapi import (
@@ -14,6 +15,7 @@ from fastapi import (
     Form,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from aio_pika import Message
 
 from app.core.db import get_async_db
 from app.dependencies import (
@@ -28,12 +30,15 @@ from app.schemas.file_storage import (
     FileStorageOut,
     FileChunkUploadIn,
 )
+from app.core.constants import RedisKey
+from app.core.constants import RedisKey
+from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
 from pydantic import BaseModel, Field
 from app.core.logging import get_logger
 from app.services.file_cleanup_service import FileCleanupService
 from app.schemas.response import ApiResponse
 from app.services import FileStorageService, MilvusVectorStore
-from app.crud import FileStorageCRUD
+from app.crud import FileStorageCRUD, ChatSessionFileCRUD, ChatSessionCRUD
 from app.models import User, FileStorageStatus
 from app.services.vectorization.vector_store import MilvusVectorStore
 from aio_pika.abc import AbstractChannel
@@ -56,12 +61,12 @@ class FileExistsResponse(BaseModel):
 
 @router.post("/files", response_model=ApiResponse[dict])
 async def upload_file_simple(
-        file: UploadFile = File(..., description="上传文件"),
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-        redis_client: Redis = Depends(get_redis),
-        minio_client: Minio = Depends(get_minio),
-        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+    file: UploadFile = File(..., description="上传文件"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    redis_client: Redis = Depends(get_redis),
+    minio_client: Minio = Depends(get_minio),
+    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut | dict[str, Any]]:
     """简单单文件上传接口（适配前端直接上传）。
 
@@ -157,9 +162,9 @@ async def upload_file_simple(
 
 @router.get("/files/check", response_model=ApiResponse[FileExistsResponse])
 async def check_file_exists(
-        file_md5: str = Query(..., description="文件MD5"),
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
+    file_md5: str = Query(..., description="文件MD5"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileExistsResponse]:
     """检查文件是否已存在（用户内去重）。"""
 
@@ -199,20 +204,20 @@ async def check_file_exists(
 
 @router.post("/files/upload/chunk", response_model=ApiResponse[dict])
 async def upload_chunk(
-        file_md5: str = Form(..., description="文件MD5"),
-        chunk_index: int = Form(..., description="分片索引，从0开始"),
-        total_chunks: int = Form(..., description="总分片数"),
-        chunk_size: int = Form(..., description="当前分片大小（字节）"),
-        total_size: int = Form(..., description="文件总大小（字节）"),
-        file_name: str = Form(..., description="文件名称"),
-        content_type: str = Form(..., description="文件MIME类型"),
-        is_public: bool = Form(False, description="是否为公共文件"),
-        file_chunk: UploadFile = File(..., description="分片文件本体"),
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-        redis_client: Redis = Depends(get_redis),
-        minio_client: Minio = Depends(get_minio),
-        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+    file_md5: str = Form(..., description="文件MD5"),
+    chunk_index: int = Form(..., description="分片索引，从0开始"),
+    total_chunks: int = Form(..., description="总分片数"),
+    chunk_size: int = Form(..., description="当前分片大小（字节）"),
+    total_size: int = Form(..., description="文件总大小（字节）"),
+    file_name: str = Form(..., description="文件名称"),
+    content_type: str = Form(..., description="文件MIME类型"),
+    is_public: bool = Form(False, description="是否为公共文件"),
+    file_chunk: UploadFile = File(..., description="分片文件本体"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    redis_client: Redis = Depends(get_redis),
+    minio_client: Minio = Depends(get_minio),
+    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[dict]:
     """分片上传接口。
 
@@ -278,12 +283,12 @@ async def upload_chunk(
     "/files/upload/is_complete/{file_id}", response_model=ApiResponse[FileStorageOut]
 )
 async def upload_is_complete(
-        file_id: int,
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-        redis_client: Redis = Depends(get_redis),
-        minio_client: Minio = Depends(get_minio),
-        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    redis_client: Redis = Depends(get_redis),
+    minio_client: Minio = Depends(get_minio),
+    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut]:
     """TODO: 检查完整文件是否已经完成上传并合并。即数据库中文件状态为 `FileStorageStatus.UPLOADED.value` (目前仅是初步设计，还需完善)。"""
 
@@ -318,16 +323,26 @@ async def upload_is_complete(
 
 @router.get("/files", response_model=ApiResponse[FileListResponse])
 async def list_files(
-        page: int = Query(1, ge=1, description="页码，从 1 开始"),
-        size: int = Query(10, ge=1, le=100, description="每页数量"),
-        include_public: bool = Query(True, description="是否包含公共文件"),
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(10, ge=1, le=100, description="每页数量"),
+    include_public: bool = Query(True, description="是否包含公共文件"),
+    keyword: str | None = Query(None, description="文件名搜索关键词"),
+    status: int | None = Query(None, description="文件状态"),
+    content_type: str | None = Query(None, description="文件MIME类型"),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileListResponse]:
     """查询知识库文件列表（分页）。"""
 
     items, total = await FileStorageCRUD.get_user_files_async(
-        db, current_user.id, page=page, size=size, include_public=include_public
+        db,
+        current_user.id,
+        page=page,
+        size=size,
+        include_public=include_public,
+        keyword=keyword,
+        status=status,
+        content_type=content_type,
     )
     payload = FileListResponse(
         items=[FileStorageOut.model_validate(item) for item in items],
@@ -335,30 +350,78 @@ async def list_files(
         page=page,
         size=size,
     )
+    logger.info(
+        "查询文件列表：user_id={}, total={}, page={}, size={}, keyword={}, status={}, content_type={}",
+        current_user.id,
+        total,
+        page,
+        size,
+        keyword,
+        status,
+        content_type,
+    )
     return ApiResponse.ok(payload)
 
 
-@router.get("/files/{file_id}", response_model=ApiResponse[FileStorageOut])
+@router.get("/files/{file_id}", response_model=ApiResponse[dict])
 async def get_file_detail(
-        file_id: int,
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-) -> ApiResponse[FileStorageOut]:
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
     """获取文件详情。"""
 
     file_obj = await FileStorageCRUD.get_user_file_async(db, file_id, current_user.id)
     if not file_obj:
         raise HTTPException(status_code=404, detail="文件不存在或无权限")
 
-    return ApiResponse.ok(FileStorageOut.model_validate(file_obj))
+    payload = FileStorageOut.model_validate(file_obj)
+
+    # 补充上传进度（仅 UPLOADING 阶段）
+    progress = None
+    if payload.status == FileStorageStatus.UPLOADING.value and file_obj.etag:
+        try:
+            from app.core.redis_client import get_redis_client
+
+            redis_client = cast(Any, get_redis_client())
+            bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(
+                current_user.id, file_obj.etag or ""
+            )
+            meta_key = RedisKey.FILE_STORAGE_METADATA.format(
+                current_user.id, file_obj.etag or ""
+            )
+            uploaded = await redis_client.bitcount(bitmap_key)
+            total_chunks = await redis_client.hget(meta_key, "total_chunks")
+            try:
+                total_chunks_int = (
+                    int(total_chunks) if total_chunks is not None else None
+                )
+            except (TypeError, ValueError):
+                total_chunks_int = None
+            if total_chunks_int is not None:
+                progress = {
+                    "uploaded_chunks": int(uploaded or 0),
+                    "total_chunks": total_chunks_int,
+                }
+        except Exception:
+            progress = None
+
+    logger.info(
+        "获取文件详情：user_id={}, file_id={}, status={}, progress={}",
+        current_user.id,
+        file_id,
+        payload.status,
+        progress,
+    )
+    return ApiResponse.ok({"file": payload, "progress": progress})
 
 
 @router.get("/files/{file_id}/preview", response_model=ApiResponse[dict])
 async def get_file_preview(
-        file_id: int,
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-        minio_client: Minio = Depends(get_minio),
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    minio_client: Minio = Depends(get_minio),
 ) -> ApiResponse[dict]:
     """获取文件预览地址（MinIO Presigned URL）。"""
 
@@ -393,9 +456,9 @@ async def get_file_preview(
 
 @router.get("/files/public", response_model=ApiResponse[FileListResponse])
 async def list_public_files(
-        page: int = Query(1, ge=1, description="页码，从 1 开始"),
-        size: int = Query(10, ge=1, le=100, description="每页数量"),
-        db: AsyncSession = Depends(get_async_db),
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(10, ge=1, le=100, description="每页数量"),
+    db: AsyncSession = Depends(get_async_db),
 ) -> ApiResponse[FileListResponse]:
     """查询公共文件列表（分页）。"""
 
@@ -413,10 +476,10 @@ async def list_public_files(
 
 @router.delete("/files/{file_id}", response_model=ApiResponse[dict])
 async def delete_file(
-        file_id: int,
-        db: AsyncSession = Depends(get_async_db),
-        current_user: User = Depends(get_current_user),
-        milvus: MilvusVectorStore = Depends(get_milvus),
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    milvus: MilvusVectorStore = Depends(get_milvus),
 ) -> ApiResponse[dict]:
     """删除文件（硬删除：MinIO/Redis/Milvus/MySQL）。"""
 
@@ -446,6 +509,28 @@ async def delete_file(
         )
         raise HTTPException(status_code=500, detail="文件删除失败")
 
+    # 删除相关的聊天会话
+    try:
+        # 获取使用该文件的所有会话ID
+        session_ids = await ChatSessionFileCRUD.get_file_session_ids_async(db, file_id)
+        if session_ids:
+            # 删除每个会话
+            for session_id in session_ids:
+                await ChatSessionCRUD.delete_session_async(db, session_id)
+            logger.info(
+                "文件关联的会话已删除：file_id={}, session_count={}",
+                file_id,
+                len(session_ids),
+            )
+    except Exception as e:
+        # 记录错误但不阻塞文件删除
+        logger.error(
+            "删除文件关联会话失败：file_id={}, error={}",
+            file_id,
+            e,
+            exc_info=True,
+        )
+
     logger.info(
         "文件已硬删除：file_id={}, user_id={}, object_name={}",
         file_id,
@@ -453,3 +538,64 @@ async def delete_file(
         file_obj.object_name,
     )
     return ApiResponse.ok({"success": True})
+
+
+@router.post("/files/{file_id}/re-vectorize", response_model=ApiResponse[dict])
+async def re_vectorize_file(
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+) -> ApiResponse[dict]:
+    """重新向量化文件。
+
+    说明：
+    - 仅当文件状态为 FAILED (3) 时可调用
+    - 调用后会重新发布向量任务到队列
+    - 返回文件当前状态
+    """
+
+    file_obj = await FileStorageCRUD.get_file_by_id_async(db, file_id)
+    if not file_obj:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 权限控制
+    if current_user.role != "admin" and file_obj.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该文件")
+
+    # 状态检查：只有 FAILED 状态可以重试
+    if file_obj.status != FileStorageStatus.FAILED.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"只有失败状态的文件可以重新向量化，当前状态: {file_obj.status}",
+        )
+
+    # 重置状态为 UPLOADED (1)，以便触发向量化
+    await FileStorageCRUD.update_file_status_async(
+        db, file_id=file_obj.id, status=FileStorageStatus.UPLOADED.value
+    )
+
+    # 发布向量任务到队列
+    try:
+        await rabbit_channel.default_exchange.publish(
+            Message(
+                body=json.dumps(
+                    {
+                        "file_id": file_obj.id,
+                        "file_md5": file_obj.etag or "",
+                        "bucket_name": file_obj.bucket_name,
+                        "object_name": file_obj.object_name,
+                        "content_type": file_obj.content_type,
+                        "user_id": current_user.id,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ),
+            routing_key=RABBITMQ_QUEUE_VECTORIZE_TASKS,
+        )
+        logger.info("文件重新向量化任务已发布：file_id={}", file_id)
+    except Exception as e:
+        logger.error("发布向量任务失败：file_id={}, error={}", file_id, e)
+        raise HTTPException(status_code=500, detail="发布向量任务失败")
+
+    return ApiResponse.ok({"success": True, "message": "向量化任务已重新发布"})

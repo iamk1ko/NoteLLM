@@ -238,38 +238,36 @@ class FileStorageCRUD:
         page: int = 1,
         size: int = 10,
         include_public: bool = True,
+        keyword: str | None = None,
+        status: int | None = None,
+        content_type: str | None = None,
     ) -> tuple[Sequence[FileStorage], int]:
         """异步查询用户的文件列表（分页，可包含公共文件）。"""
 
         # 构建查询条件：用户自己的文件 或 公共文件
-        stmt = select(FileStorage).where(
-            FileStorage.status == FileStorageStatus.EMBEDDED
-        )
-
-        if include_public:
-            stmt = stmt.where(
-                or_(
-                    FileStorage.user_id == user_id,  # 用户的私有文件
-                    FileStorage.is_public == True,  # 公共文件
-                )
+        conditions = [
+            or_(
+                FileStorage.user_id == user_id,
+                FileStorage.is_public == True,
             )
-        else:
-            stmt = stmt.where(FileStorage.user_id == user_id)
+            if include_public
+            else FileStorage.user_id == user_id
+        ]
+
+        if keyword:
+            like = f"%{keyword}%"
+            conditions.append(FileStorage.filename.like(like))
+
+        if status is not None:
+            conditions.append(FileStorage.status == status)
+
+        if content_type:
+            conditions.append(FileStorage.content_type == content_type)
+
+        stmt = select(FileStorage).where(and_(*conditions))
 
         # 查询总数
-        count_stmt = select(func.count(FileStorage.id)).where(
-            FileStorage.status == FileStorageStatus.EMBEDDED
-        )
-        if include_public:
-            count_stmt = count_stmt.where(
-                or_(
-                    FileStorage.user_id == user_id,
-                    FileStorage.is_public == True,
-                    FileStorage.is_public == 1,
-                )
-            )
-        else:
-            count_stmt = count_stmt.where(FileStorage.user_id == user_id)
+        count_stmt = select(func.count(FileStorage.id)).where(and_(*conditions))
 
         total = await db.scalar(count_stmt) or 0
 

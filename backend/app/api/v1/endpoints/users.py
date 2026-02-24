@@ -14,7 +14,7 @@ from app.schemas.users import (
     UserListResponse,
     SimpleResponse,
 )
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models import User
 from app.schemas.response import ApiResponse
 
@@ -62,6 +62,15 @@ async def list_users_page(
     return ApiResponse.ok(payload)
 
 
+@router.get("/users/me", response_model=ApiResponse[UserOut])
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[UserOut]:
+    """获取当前登录用户信息。"""
+
+    return ApiResponse.ok(UserOut.model_validate(current_user))
+
+
 @router.get("/users/{user_id}", response_model=ApiResponse[UserOut])
 async def get_user(
     user_id: int, db: AsyncSession = Depends(get_async_db)
@@ -74,18 +83,11 @@ async def get_user(
     return ApiResponse.ok(UserOut.model_validate(user))
 
 
-@router.get("/users/me", response_model=ApiResponse[UserOut])
-async def get_current_user_info(
-    current_user: User = Depends(get_current_user),
-) -> ApiResponse[UserOut]:
-    """获取当前登录用户信息。"""
-
-    return ApiResponse.ok(UserOut.model_validate(current_user))
-
-
 @router.post("/users", response_model=ApiResponse[UserOut])
 async def create_user(
-    payload: UserCreate, db: AsyncSession = Depends(get_async_db)
+    payload: UserCreate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(require_admin),
 ) -> ApiResponse[UserOut]:
     """创建用户。"""
 
@@ -109,7 +111,9 @@ async def update_user(
 
 @router.delete("/users/{user_id}", response_model=ApiResponse[SimpleResponse])
 async def delete_user(
-    user_id: int, db: AsyncSession = Depends(get_async_db)
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(require_admin),
 ) -> ApiResponse[SimpleResponse]:
     """删除用户。"""
 

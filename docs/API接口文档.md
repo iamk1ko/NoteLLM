@@ -694,7 +694,12 @@
         "status": 1,
         "email": "admin@example.com",
         "create_time": "2024-01-01T00:00:00",
-        "update_time": "2024-01-01T00:00:00"
+        "update_time": "2024-01-01T00:00:00",
+        "quota": {
+           "total_bytes": 1073741824, // 1GB
+           "used_bytes": 52428800,    // 50MB
+           "file_count": 12
+        }
       },
       "timestamp": "2024-01-01T00:00:00"
     }

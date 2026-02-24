@@ -66,13 +66,17 @@
             发布到社区
           </button>
 
-          <!-- API doesn't provide previewUrl yet -->
-          <button class="btn btn-outline full-width" disabled>
+          <!-- Preview Button -->
+          <button 
+            class="btn btn-outline full-width" 
+            @click="handlePreview"
+            title="查看原文"
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
-            查看原文 (不可用)
+            查看原文
           </button>
         </div>
       </div>
@@ -148,6 +152,16 @@
         </div>
       </div>
     </main>
+
+    <!-- Preview Modal -->
+    <FilePreviewModal
+      v-if="showPreview"
+      :url="previewData.url"
+      :file-name="previewData.fileName"
+      :file-size="previewData.fileSize"
+      :content-type="previewData.contentType"
+      @close="closePreview"
+    />
   </div>
 </template>
 
@@ -157,7 +171,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { useQaStore } from '@/store/qa';
 import { formatSize } from '@/utils/format';
-import { communityService } from '@/services/community'; // Add import
+import { communityService } from '@/services/community';
+import { getFilePreview } from '@/services/files';
+import FilePreviewModal from '@/components/FilePreviewModal.vue';
+import { ElMessage } from 'element-plus';
 
 /**
  * ChatView Component
@@ -178,6 +195,15 @@ const inputRef = ref<HTMLTextAreaElement | null>(null); // 输入框引用，用
 const isSidebarCollapsed = ref(false); // 侧边栏折叠状态
 const generatingSummary = ref(false); // Add generating summary state
 
+// Preview State
+const showPreview = ref(false);
+const previewData = ref({
+  url: '',
+  fileName: '',
+  fileSize: '',
+  contentType: ''
+});
+
 // --- Computed ---
 const detail = computed(() => filesStore.detail); // 当前文件详情
 const records = computed(() => qaStore.records); // 当前文件的问答历史 (MessageItems)
@@ -186,6 +212,32 @@ const loading = computed(() => qaStore.loading); // 加载/回答生成中状态
 // --- Methods ---
 const goBack = () => router.push('/files');
 const toggleSidebar = () => isSidebarCollapsed.value = !isSidebarCollapsed.value;
+
+const handlePreview = async () => {
+  if (!detail.value) return;
+  
+  try {
+    const url = await getFilePreview(detail.value.id);
+    if (url) {
+      previewData.value = {
+        url,
+        fileName: detail.value.filename,
+        fileSize: formatSize(detail.value.file_size),
+        contentType: detail.value.content_type
+      };
+      showPreview.value = true;
+    } else {
+      ElMessage.warning('无法获取预览链接');
+    }
+  } catch (e) {
+    ElMessage.error('获取预览失败');
+  }
+};
+
+const closePreview = () => {
+  showPreview.value = false;
+  previewData.value.url = ''; 
+};
 
 const generateSummary = async () => {
   if (!qaStore.sessionId || generatingSummary.value) return;

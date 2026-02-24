@@ -8,11 +8,20 @@
         </router-link>
 
         <div class="nav-links">
-          <router-link to="/files" class="nav-item">文档库</router-link>
-          <router-link to="/community" class="nav-item">社区广场</router-link>
-          <router-link to="/account" class="nav-item">用户中心</router-link>
+          <template v-if="userStore.isLoggedIn">
+            <router-link to="/files" class="nav-item">文档库</router-link>
+            <router-link to="/community" class="nav-item">社区广场</router-link>
+            <router-link to="/account" class="nav-item">
+              用户中心
+            </router-link>
+          </template>
+          <template v-else>
+            <router-link to="/login" class="nav-item">登录</router-link>
+            <router-link to="/register" class="nav-item">注册</router-link>
+          </template>
+          
           <a
-            href="https://github.com/opencode/notellm"
+            href="https://github.com/iamk1ko/NoteLLM"
             target="_blank"
             class="nav-icon"
             title="GitHub"
@@ -48,7 +57,14 @@
 </template>
 
 <script setup lang="ts">
-// Logic here if needed
+import { useUserStore } from '@/store/user';
+import { onMounted } from 'vue';
+
+const userStore = useUserStore();
+
+onMounted(() => {
+  userStore.checkAuth();
+});
 </script>
 
 <style scoped>

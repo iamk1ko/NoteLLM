@@ -53,6 +53,16 @@
       <p>[ 空空如也 ]</p>
       <p>上传文件以开始</p>
     </div>
+
+    <!-- Preview Modal -->
+    <FilePreviewModal
+      v-if="showPreview"
+      :url="previewData.url"
+      :file-name="previewData.fileName"
+      :file-size="previewData.fileSize"
+      :content-type="previewData.contentType"
+      @close="closePreview"
+    />
   </div>
 </template>
 
@@ -62,7 +72,9 @@ import { useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { deleteFile, getFilePreview } from '@/services/files';
 import FileCard from '@/components/FileCard.vue';
+import FilePreviewModal from '@/components/FilePreviewModal.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import type { FileItem } from '@/services/types';
 
 /**
  * FileListView Component
@@ -74,6 +86,15 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 const router = useRouter();
 const filesStore = useFilesStore();
 const keyword = ref(''); // 搜索关键词
+
+// Preview State
+const showPreview = ref(false);
+const previewData = ref({
+  url: '',
+  fileName: '',
+  fileSize: '',
+  contentType: ''
+});
 
 const loading = computed(() => filesStore.loading);
 const files = computed(() => filesStore.list); // 从Store获取文件列表
@@ -90,13 +111,22 @@ const goChat = (id: string) => router.push(`/chat/${id}`);
 
 /**
  * 预览文件 (Preview File)
- * 获取MinIO预签名链接并打开新标签页
+ * 获取MinIO预签名链接并打开模态框
  */
 const handlePreview = async (id: string) => {
   try {
+    const file = files.value.find(f => f.id === Number(id)); // ID might be number or string, check store
+    if (!file) return;
+
     const url = await getFilePreview(id);
     if (url) {
-      window.open(url, '_blank');
+      previewData.value = {
+        url,
+        fileName: file.filename,
+        fileSize: (file.file_size / 1024).toFixed(2) + ' KB',
+        contentType: file.content_type
+      };
+      showPreview.value = true;
     } else {
       ElMessage.warning('无法获取预览链接');
     }
@@ -104,6 +134,12 @@ const handlePreview = async (id: string) => {
     ElMessage.error('获取预览失败');
   }
 };
+
+const closePreview = () => {
+  showPreview.value = false;
+  previewData.value.url = ''; // Reset to stop playing/loading
+};
+
 
 /**
  * 确认删除操作 (Confirm Delete)

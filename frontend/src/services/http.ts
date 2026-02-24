@@ -8,7 +8,9 @@ const http = axios.create({
   // 从环境变量读取API地址 (VITE_API_BASE_URL)
   baseURL: import.meta.env.VITE_API_BASE_URL,
   // 默认超时时间 20秒
-  timeout: 20000
+  timeout: 20000,
+  // 允许跨域携带 Cookie (Session ID)
+  withCredentials: true
 });
 
 /**

@@ -1,28 +1,94 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useUserStore } from "@/store/user";
 
 import AccountView from "@/views/AccountView.vue";
 import ChatView from "@/views/ChatView.vue";
 import FileListView from "@/views/FileListView.vue";
-import CommunityView from "@/views/CommunityView.vue"; // Add import
+import CommunityView from "@/views/CommunityView.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
 import UploadView from "@/views/UploadView.vue";
+import LoginView from "@/views/LoginView.vue";
+import RegisterView from "@/views/RegisterView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/files" },
-    { path: "/upload", name: "upload", component: UploadView, meta: { title: "文件上传" } },
-    { path: "/files", name: "files", component: FileListView, meta: { title: "文档库" } },
+    { 
+      path: "/login", 
+      name: "login", 
+      component: LoginView, 
+      meta: { title: "登录", public: true } 
+    },
+    { 
+      path: "/register", 
+      name: "register", 
+      component: RegisterView, 
+      meta: { title: "注册", public: true } 
+    },
+    { 
+      path: "/upload", 
+      name: "upload", 
+      component: UploadView, 
+      meta: { title: "文件上传" } 
+    },
+    { 
+      path: "/files", 
+      name: "files", 
+      component: FileListView, 
+      meta: { title: "文档库" } 
+    },
     {
       path: "/chat/:id",
       name: "chat",
       component: ChatView,
       meta: { title: "智能问答" }
     },
-    { path: "/community", name: "community", component: CommunityView, meta: { title: "社区广场" } }, // Add route
-    { path: "/account", name: "account", component: AccountView, meta: { title: "账户管理" } },
-    { path: "/:pathMatch(.*)*", name: "notfound", component: NotFoundView, meta: { title: "404" } }
+    { 
+      path: "/community", 
+      name: "community", 
+      component: CommunityView, 
+      meta: { title: "社区广场" } 
+    },
+    { 
+      path: "/account", 
+      name: "account", 
+      component: AccountView, 
+      meta: { title: "账户管理" } 
+    },
+    { 
+      path: "/:pathMatch(.*)*", 
+      name: "notfound", 
+      component: NotFoundView, 
+      meta: { title: "404", public: true } 
+    }
   ]
+});
+
+// Navigation Guard
+router.beforeEach(async (to, from, next) => {
+  const userStore = useUserStore();
+  
+  // Set document title
+  document.title = `${to.meta.title} - NoteLLM` || "NoteLLM";
+
+  // Check auth status if not already loaded (e.g. page refresh)
+  if (!userStore.isLoggedIn && !userStore.loading) {
+    await userStore.checkAuth();
+  }
+
+  const isPublic = to.meta.public;
+  const isAuthenticated = userStore.isLoggedIn;
+
+  if (!isPublic && !isAuthenticated) {
+    // Redirect to login if trying to access protected route
+    next({ name: 'login', query: { redirect: to.fullPath } });
+  } else if ((to.name === 'login' || to.name === 'register') && isAuthenticated) {
+    // Redirect to home if already logged in
+    next({ name: 'files' });
+  } else {
+    next();
+  }
 });
 
 export default router;

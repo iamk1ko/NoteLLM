@@ -78,7 +78,13 @@ export interface MessageItem {
 }
 
 // 6. User Models
-export interface UserItem {
+export interface Quota {
+  total_bytes: number;
+  used_bytes: number;
+  file_count: number;
+}
+
+export interface User {
   id: number;
   username: string;
   name: string;
@@ -88,8 +94,12 @@ export interface UserItem {
   phone: string | null;
   avatar_file_id: number | null;
   bio: string | null;
-  created_at?: string; // API doc doesn't explicitly show this in list, but likely exists
+  created_at?: string;
+  quota?: Quota;
 }
+
+// Deprecated: UserItem (keeping for backward compatibility if needed, but User is preferred)
+export type UserItem = User;
 
 // 7. Upload Progress (Frontend only)
 export interface UploadProgress {

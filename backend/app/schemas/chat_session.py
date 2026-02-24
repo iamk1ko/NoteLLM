@@ -124,3 +124,12 @@ class ChatSessionWithFiles(ChatSessionOut):
 
     files: Sequence[int] = Field([], description="关联的文件ID列表")
     # 说明：返回文件ID列表，前端可以单独调用文件接口获取详细信息
+
+
+class SessionSummaryRequest(BaseModel):
+    focus_topics: list[str] | None = Field(None, description="Focus topics for summary")
+
+
+class SessionSummaryResponse(BaseModel):
+    summary_content: str
+    created_at: datetime

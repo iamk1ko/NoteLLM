@@ -17,15 +17,15 @@ logger = get_logger(__name__)
 
 class VectorizationOrchestrator:
     def __init__(
-            self,
-            *,
-            db: Session,
-            reader: MinioFileReader,
-            parser: DocumentParser,
-            chunker: TextChunker,
-            vector_store: MilvusVectorStore,
-            task_state: TaskStateStore,
-            vector_batch_size: int = 64,
+        self,
+        *,
+        db: Session,
+        reader: MinioFileReader,
+        parser: DocumentParser,
+        chunker: TextChunker,
+        vector_store: MilvusVectorStore,
+        task_state: TaskStateStore,
+        vector_batch_size: int = 64,
     ) -> None:
         self.db = db
         self.reader = reader
@@ -36,18 +36,22 @@ class VectorizationOrchestrator:
         self.vector_batch_size = vector_batch_size
 
     async def vectorize_file(
-            self,
-            *,
-            file_id: int,
-            file_md5: str,
-            bucket_name: str,
-            object_name: str,
-            content_type: str,
+        self,
+        *,
+        file_id: int,
+        file_md5: str,
+        bucket_name: str,
+        object_name: str,
+        content_type: str,
     ) -> int:
         existing_status = await self.task_state.get_status(file_md5)
+        if isinstance(existing_status, (bytes, bytearray)):
+            existing_status = existing_status.decode("utf-8")
         if existing_status == "success":
-            logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
-            return 0
+            logger.info(
+                "Redis 状态显示任务已完成，清理后重新执行：file_md5={}", file_md5
+            )
+            await self.task_state.clear(file_md5)
 
         await self.task_state.set_status(file_md5, "running")
         await self.task_state.set_error(file_md5, "")
@@ -64,7 +68,9 @@ class VectorizationOrchestrator:
 
         # ================== 从 MinIO 中读取文件 ==================
         chunk_total = 0
-        await self.task_state.set_stage(file_md5, VectorizationStage.DOWNLOAD.value)  # 设置当前阶段为下载 (从minio读取文件)
+        await self.task_state.set_stage(
+            file_md5, VectorizationStage.DOWNLOAD.value
+        )  # 设置当前阶段为下载 (从minio读取文件)
         try:
             read_result = self.reader.download(bucket_name, object_name)
         except Exception as e:
@@ -84,7 +90,12 @@ class VectorizationOrchestrator:
             try:
                 elements = self.parser.parse(read_result.file_path, content_type)
             except Exception as e:
-                logger.error("文件解析失败: file_md5={}, content_type={}, error={}", file_md5, content_type, e)
+                logger.error(
+                    "文件解析失败: file_md5={}, content_type={}, error={}",
+                    file_md5,
+                    content_type,
+                    e,
+                )
                 raise VectorizationError(
                     stage=VectorizationStage.PARSE,
                     message=f"文档解析失败: content_type={content_type}",
@@ -169,6 +180,8 @@ class VectorizationOrchestrator:
             )
             await self.task_state.set_status(file_md5, "success")
             await self.task_state.set_stage(file_md5, "success")
+            # 成功后清理任务状态，避免下次上传同文件误判已完成
+            await self.task_state.clear(file_md5)
             return chunk_total
         except VectorizationError as e:
             logger.error(
@@ -230,3 +243,4 @@ class VectorizationOrchestrator:
         FileStorageCRUD.update_file_status(
             self.db, file_id=file_id, status=FileStorageStatus.FAILED.value
         )
+        # 失败后不清理，保留错误信息便于排查；依赖 TTL 自动过期

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Generic, TypeVar, Any
+from typing import Generic, TypeVar, Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,11 +20,11 @@ class ApiResponse(BaseModel, Generic[T]):
 
     code: int = Field(0, description="业务状态码，0 表示成功")
     message: str = Field("OK", description="提示信息")
-    data: T | None = Field(None, description="响应数据")
+    data: T = Field(None, description="响应数据")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="响应时间")
 
     @classmethod
-    def ok(cls, data: T | None = None, message: str = "OK") -> "ApiResponse[T]":
+    def ok(cls, data: T = None, message: str = "OK") -> "ApiResponse[T]":
         """快速构造成功响应。"""
 
         return cls(code=0, message=message, data=data)

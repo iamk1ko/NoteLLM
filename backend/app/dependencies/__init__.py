@@ -22,6 +22,7 @@ __all__ = [
     "get_minio",
     "get_rabbitmq_connection",
     "get_rabbitmq_channel",
+    "get_milvus",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -35,6 +36,7 @@ _LAZY_IMPORTS: dict[str, str] = {
     "get_minio": "app.dependencies.infra:get_minio",
     "get_rabbitmq_connection": "app.dependencies.infra:get_rabbitmq_connection",
     "get_rabbitmq_channel": "app.dependencies.infra:get_rabbitmq_channel",
+    "get_milvus": "app.dependencies.infra:get_milvus",
 }
 
 
@@ -66,4 +68,5 @@ if TYPE_CHECKING:
         get_minio,
         get_rabbitmq_connection,
         get_rabbitmq_channel,
+        get_milvus,
     )

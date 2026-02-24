@@ -3,10 +3,10 @@
     <div class="card">
       <div class="detail__header">
         <div>
-          <h3 class="section-title">{{ detail?.name }}</h3>
+          <h3 class="section-title">{{ detail?.filename }}</h3>
           <p class="detail__meta">
-            {{ detail?.mimeType || "未知类型" }} · {{ formatSize(detail?.size || 0) }} ·
-            {{ formatTime(detail?.createdAt || "") }}
+            {{ detail?.content_type || "未知类型" }} · {{ formatSize(detail?.file_size || 0) }} ·
+            {{ formatTime(detail?.created_at || "") }}
           </p>
         </div>
         <span class="pill" :class="statusClass(detail?.status)">
@@ -17,7 +17,7 @@
       <div class="detail__summary">
         <div>
           <p class="detail__label">智能摘要</p>
-          <p class="detail__value">{{ detail?.summary || "暂无摘要" }}</p>
+          <p class="detail__value">{{ "暂无摘要 (API pending)" }}</p>
         </div>
         <div>
           <p class="detail__label">向量化状态</p>
@@ -29,10 +29,10 @@
     <div class="grid-2">
       <div class="card">
         <h3 class="section-title">文档预览</h3>
-        <div class="preview" v-if="detail?.previewUrl">
-          <iframe :src="detail.previewUrl" title="preview" />
+        <div class="preview" v-if="false">
+          <!-- iframe :src="detail.previewUrl" title="preview" / -->
         </div>
-        <div v-else class="preview__empty">暂无预览，请等待向量化完成。</div>
+        <div class="preview__empty">暂无预览 (API pending)</div>
       </div>
       <div class="card">
         <h3 class="section-title">相关问答</h3>
@@ -48,13 +48,13 @@
 
     <div class="card">
       <h3 class="section-title">向量检索片段</h3>
-      <div v-if="detail?.chunks?.length" class="chunk-list">
-        <div v-for="chunk in detail.chunks" :key="chunk.id" class="chunk">
+      <div v-if="false" class="chunk-list">
+        <!-- div v-for="chunk in detail.chunks" :key="chunk.id" class="chunk">
           <p>{{ chunk.content }}</p>
           <span>相似度 {{ chunk.score.toFixed(2) }}</span>
-        </div>
+        </div -->
       </div>
-      <div v-else class="preview__empty">暂无检索片段。</div>
+      <div class="preview__empty">暂无检索片段 (API pending)</div>
     </div>
   </div>
 </template>
@@ -74,19 +74,22 @@ const qaStore = useQaStore();
 const detail = computed(() => filesStore.detail);
 const qaRecords = computed(() => qaStore.records.slice(0, 3));
 
-const statusClass = (status?: string) => {
-  if (status === "vectorized") return "pill--success";
-  if (status === "failed") return "pill--warning";
+const statusClass = (status?: number) => {
+  if (status === 2) return "pill--success";
+  if (status === 1) return "pill--warning";
+  if (status === 3) return "pill--failed";
   return "";
 };
 
-const statusText = (status?: string) => {
-  const map: Record<string, string> = {
-    vectorized: "已完成",
-    processing: "处理中",
-    failed: "失败"
+const statusText = (status?: number) => {
+  const map: Record<number, string> = {
+    2: "已完成",
+    1: "向量化中",
+    0: "上传中",
+    3: "失败",
+    4: "已删除"
   };
-  return map[status || ""] || "未知";
+  return map[status ?? -1] || "未知";
 };
 
 onMounted(async () => {

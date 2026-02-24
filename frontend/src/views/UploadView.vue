@@ -44,9 +44,18 @@
       <!-- Progress -->
       <div v-if="progress" class="progress-container">
         <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: progress.percent + '%' }"></div>
+          <div class="progress-fill" 
+               :class="{ 'vectorizing-stripe': status === 'vectorizing' || status === 'merging' }"
+               :style="{ width: progress.percent + '%' }">
+          </div>
         </div>
         <span class="progress-text">{{ Math.floor(progress.percent) }}%</span>
+      </div>
+
+      <!-- Status Text -->
+      <div v-if="status && status !== 'idle' && status !== 'completed'" class="status-message fade-in">
+        <span class="blink" v-if="status === 'vectorizing'">⚡</span>
+        {{ statusText }}
       </div>
 
       <!-- Success Feedback -->
@@ -80,6 +89,18 @@ const uploadStore = useUploadStore();
 
 const uploading = computed(() => uploadStore.uploading); // 全局上传状态
 const progress = computed(() => uploadStore.progress); // 进度信息
+const status = computed(() => uploadStore.status);
+
+const statusText = computed(() => {
+  switch (status.value) {
+    case 'uploading': return '正在上传到服务器...';
+    case 'merging': return '正在合并分片...';
+    case 'vectorizing': return '正在进行向量化处理 (可能需要几分钟)...';
+    case 'completed': return '处理完成!';
+    case 'failed': return '处理失败';
+    default: return '';
+  }
+});
 
 /**
  * 上传前钩子 (Before Upload)
@@ -361,6 +382,31 @@ const submitUpload = async () => {
   background-size: 20px 20px;
   transition: width 0.3s steps(5);
 }
+
+.vectorizing-stripe {
+  background-color: #f59e0b; /* Amber */
+  animation: stripe-move 1s linear infinite;
+}
+
+@keyframes stripe-move {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+.status-message {
+  margin-top: 12px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--nl-text-main);
+  text-align: center;
+  font-weight: bold;
+}
+
+.blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink { 50% { opacity: 0; } }
 
 .progress-text {
   font-family: var(--font-display);

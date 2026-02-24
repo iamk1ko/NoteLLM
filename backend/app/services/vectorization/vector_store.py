@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
-import asyncio
 from typing import Dict, Any, Optional, List
 
 from pymilvus import (
@@ -10,14 +10,13 @@ from pymilvus import (
     CollectionSchema,
     DataType,
     FieldSchema,
-    connections,
     Function,
     FunctionType,
 )
 from pymilvus.milvus_client import IndexParams
 
-from app.core.logging import get_logger
 from app.core.constants import MilvusField
+from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.schemas import ChunkRecord
 from app.services.vectorization.embedder import BgeM3Embedder, Embedder
@@ -73,8 +72,6 @@ class MilvusVectorStore:
             if not exists:
                 logger.info(f'集合 "{self.collection_name}" 不存在. 正在尝试创建...')
                 await self._create_collection(force_recreate=True)
-                # await self._create_collection_schema() # Remove redundant call
-                await self._create_index(skip_if_exists=True)
             else:
                 logger.info(f'集合 "{self.collection_name}" 已存在. 正在加载中...')
                 await self.load_collection()
@@ -164,6 +161,8 @@ class MilvusVectorStore:
 
             logger.info(f"成功创建集合: {self.collection_name}")
             self.collection_created = True
+
+            await self._create_index(skip_if_exists=True)
 
             return True
 
@@ -780,6 +779,16 @@ class MilvusVectorStore:
             logger.error(f"获取集合统计信息失败: {e}")
             return {"error": str(e)}
 
+    async def _ensure_collection_loaded(self) -> None:
+        """确保集合已加载到内存，避免查询时报 collection not loaded。"""
+        try:
+            await self._maybe_await(
+                self._require_client().load_collection(self.collection_name)
+            )
+            logger.debug("Milvus 集合已加载：{}", self.collection_name)
+        except Exception as e:
+            logger.warning("Milvus 集合加载失败：{}, error={}", self.collection_name, e)
+
     async def delete_collection(self) -> bool:
         """
         删除集合
@@ -849,3 +858,53 @@ class MilvusVectorStore:
     def __del__(self):
         """析构函数"""
         self.close()
+
+    async def delete_by_file_id(self, file_id: int) -> int:
+        """按 file_id 删除向量数据。
+
+        Returns:
+            删除的记录数（Milvus 返回的删除数量）
+        """
+        try:
+            await self._ensure_collection_loaded()
+            expr = f"{MilvusField.FILE_ID.value} == {file_id}"
+            logger.info("删除 Milvus 向量数据：file_id={}, expr={}", file_id, expr)
+            result = await self._maybe_await(
+                self._require_client().delete(
+                    collection_name=self.collection_name, filter=expr
+                )
+            )
+            # Milvus delete 返回值可能是 dict，包含 delete_count
+            deleted_count = 0
+            if isinstance(result, dict):
+                deleted_count = int(result.get("delete_count", 0) or 0)
+            logger.info(
+                "Milvus 向量删除完成：file_id={}, deleted={}", file_id, deleted_count
+            )
+            return deleted_count
+        except Exception as e:
+            logger.error(
+                "Milvus 向量删除失败：file_id={}, error={}", file_id, e, exc_info=True
+            )
+            return 0
+
+    async def count_by_file_id(self, file_id: int) -> int:
+        """统计指定 file_id 的向量数量，用于一致性检查。"""
+        try:
+            await self._ensure_collection_loaded()
+            expr = f"{MilvusField.FILE_ID.value} == {file_id}"
+            result = await self._maybe_await(
+                self._require_client().query(
+                    collection_name=self.collection_name,
+                    filter=expr,
+                    output_fields=[MilvusField.FILE_ID.value],
+                )
+            )
+            if isinstance(result, list):
+                return len(result)
+            return 0
+        except Exception as e:
+            logger.error(
+                "Milvus 向量统计失败：file_id={}, error={}", file_id, e, exc_info=True
+            )
+            return 0

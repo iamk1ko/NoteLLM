@@ -1,5 +1,6 @@
 from enum import Enum, unique
 
+
 @unique
 class RedisKey(str, Enum):
     FILE_STORAGE_METADATA = "file_storage:meta:{}:{}"
@@ -12,6 +13,7 @@ class RedisKey(str, Enum):
     FILE_VECTORIZATION_TASK_RETRYABLE = "vector:task:retryable:{}"
     FILE_VECTORIZATION_TASK_UPDATED_AT = "vector:task:updated_at:{}"
     FILE_VECTORIZATION_TASK_CURSOR = "vector:cursor:{}"
+
 
 @unique
 class MilvusField(str, Enum):

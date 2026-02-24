@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from aio_pika.abc import AbstractRobustConnection, AbstractChannel
 
 from app.core.app_state import get_app_state
+from app.services.vectorization.vector_store import MilvusVectorStore
 
 
 def get_redis(request: Request) -> Redis:
@@ -49,7 +50,7 @@ def get_rabbitmq_connection(request: Request) -> AbstractRobustConnection:
 
 
 async def get_rabbitmq_channel(
-        request: Request,
+    request: Request,
 ) -> AsyncGenerator[AbstractChannel, None]:
     """获取 RabbitMQ Channel（依赖注入）。
 
@@ -64,3 +65,14 @@ async def get_rabbitmq_channel(
         yield channel
     finally:
         await channel.close()
+
+
+def get_milvus(request: Request) -> MilvusVectorStore:
+    """获取 Milvus 客户端（依赖注入）。"""
+
+    state = get_app_state(request.app)
+    infra = state.infra
+    milvus = getattr(infra, "milvus", None) if infra else None
+    if milvus is None:
+        raise HTTPException(status_code=503, detail="Milvus 客户端未初始化")
+    return milvus

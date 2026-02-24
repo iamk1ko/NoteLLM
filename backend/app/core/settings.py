@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     VECTOR_COLLECTION: str = "knowledge_base"
     VECTOR_BATCH_SIZE: int = 64
     VECTOR_MEMORY_THRESHOLD_MB: int = 32
+    VECTOR_TASK_TTL_SECONDS: int = 86400
 
     # Vector Store Config
     VS_CONTENT_MAX_LEN: int = 4096

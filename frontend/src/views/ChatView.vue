@@ -23,7 +23,9 @@
           <div class="notebook-hole-punch right"></div>
           <h2 class="file-name-lg">{{ detail.filename }}</h2>
           <p class="file-meta-lg">{{ formatSize(detail.file_size) }}</p>
-          <span class="pill pill--success" v-if="detail.status === 1">就绪</span>
+          <span class="pill pill--success" v-if="detail.status === 2">就绪</span>
+          <span class="pill pill--warning" v-if="detail.status === 1">向量化中...</span>
+          <span class="pill pill--failed" v-if="detail.status === 3">失败</span>
         </div>
 
         <div class="sidebar-section">
@@ -33,9 +35,40 @@
         </div>
 
         <div class="sidebar-actions">
+          <button 
+            class="btn btn-secondary full-width mb-3" 
+            @click="generateSummary" 
+            :disabled="generatingSummary"
+            title="AI 自动生成总结笔记"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            {{ generatingSummary ? '生成中...' : '生成智能笔记' }}
+          </button>
+          
+          <button 
+            class="btn btn-primary full-width mb-3" 
+            @click="shareSession"
+            title="发布到社区广场"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+            发布到社区
+          </button>
+
           <!-- API doesn't provide previewUrl yet -->
-          <button class="btn btn-primary full-width" disabled>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="btn btn-outline full-width" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
@@ -124,6 +157,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { useQaStore } from '@/store/qa';
 import { formatSize } from '@/utils/format';
+import { communityService } from '@/services/community'; // Add import
 
 /**
  * ChatView Component
@@ -142,6 +176,7 @@ const question = ref(''); // 用户输入的问题
 const messagesRef = ref<HTMLElement | null>(null); // 消息列表容器引用，用于滚动到底部
 const inputRef = ref<HTMLTextAreaElement | null>(null); // 输入框引用，用于自动调整高度
 const isSidebarCollapsed = ref(false); // 侧边栏折叠状态
+const generatingSummary = ref(false); // Add generating summary state
 
 // --- Computed ---
 const detail = computed(() => filesStore.detail); // 当前文件详情
@@ -151,6 +186,45 @@ const loading = computed(() => qaStore.loading); // 加载/回答生成中状态
 // --- Methods ---
 const goBack = () => router.push('/files');
 const toggleSidebar = () => isSidebarCollapsed.value = !isSidebarCollapsed.value;
+
+const generateSummary = async () => {
+  if (!qaStore.sessionId || generatingSummary.value) return;
+  generatingSummary.value = true;
+  try {
+    const res = await communityService.generateSummary(qaStore.sessionId);
+    alert("笔记生成成功！\n" + res.summary_content);
+  } catch (error) {
+    console.error("Failed to generate summary", error);
+    alert("生成失败，请稍后重试");
+  } finally {
+    generatingSummary.value = false;
+  }
+};
+
+const shareSession = async () => {
+  if (!detail.value || !qaStore.sessionId) return;
+  
+  const title = prompt("请输入分享标题", detail.value.filename + " 的问答分享");
+  if (!title) return;
+  
+  const description = prompt("请输入分享描述", "这是关于 " + detail.value.filename + " 的精彩问答记录");
+  
+  try {
+    await communityService.publishShare({
+      source_file_id: detail.value.id,
+      session_id: qaStore.sessionId,
+      title: title,
+      description: description || undefined,
+      is_public_source: false
+    });
+    
+    alert("发布成功！您的分享已发布到社区广场。");
+    router.push('/community');
+  } catch (error) {
+    console.error("Failed to share", error);
+    alert("发布失败");
+  }
+};
 
 /**
  * 滚动消息列表到底部
@@ -550,4 +624,67 @@ textarea:focus { outline: none; }
   cursor: not-allowed;
   box-shadow: none;
 }
+
+/* New Buttons */
+.btn {
+  padding: 8px 16px;
+  border: 2px solid black;
+  font-family: var(--font-display);
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  text-transform: uppercase;
+  background: white;
+  color: black;
+  box-shadow: 4px 4px 0px black;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px black;
+}
+
+.btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0px 0px 0px transparent;
+}
+
+.btn:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #d1d5db;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #ec4899; /* Pink */
+  color: white;
+}
+
+.btn-secondary {
+  background: #10b981; /* Green */
+  color: white;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 2px dashed #9ca3af;
+  color: #6b7280;
+  box-shadow: none;
+}
+.btn-outline:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: black;
+  color: black;
+}
+
+.mr-2 { margin-right: 8px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
 </style>

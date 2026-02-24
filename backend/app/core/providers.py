@@ -78,7 +78,7 @@ class InfraProvider:
                 dim=settings.EMBEDDING_DIM,
             )
             # 启动时检查/创建集合
-            await self.milvus.init_collection(is_renew_collection=True)
+            await self.milvus.init_collection(is_renew_collection=False)
             logger.info("Milvus 客户端初始化完成, 详细信息如下：\n{}",
                         self.milvus.client.describe_collection(settings.VECTOR_COLLECTION))
         except Exception as e:

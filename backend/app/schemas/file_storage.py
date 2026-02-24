@@ -33,7 +33,9 @@ class FileSaveDTO(BaseModel):
     file_md5: str = Field(..., min_length=32, max_length=64, description="文件MD5")
     file_size: int = Field(..., ge=0, description="文件大小（字节）")
     is_public: bool = Field(False, description="是否为公共文件：True-公共，False-私有")
-    status: int = Field(..., description="文件状态：0-上传中，1-已上传，2-已向量化，3-失败")
+    status: int = Field(
+        ..., description="文件状态：0-上传中，1-已上传，2-已向量化，3-失败"
+    )
 
 
 class FileChunkUploadIn(BaseModel):
@@ -80,7 +82,9 @@ class FileStorageOut(FileStorageBase):
 
     id: int = Field(..., description="文件ID")
     user_id: int = Field(..., description="上传用户ID")
-    status: int = Field(..., description="文件状态：1-可用，2-已删除，3-禁用")
+    status: int = Field(
+        ..., description="文件状态：0-上传中，1-已上传，2-已向量化，3-失败"
+    )
     upload_time: datetime | None = Field(None, description="上传时间")
     update_time: datetime | None = Field(None, description="更新时间")
     bucket_name: str | None = Field(None, description="存储桶名称")

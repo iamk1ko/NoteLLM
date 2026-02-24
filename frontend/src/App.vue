@@ -9,6 +9,7 @@
 
         <div class="nav-links">
           <router-link to="/files" class="nav-item">文档库</router-link>
+          <router-link to="/community" class="nav-item">社区广场</router-link>
           <router-link to="/account" class="nav-item">用户中心</router-link>
           <a
             href="https://github.com/opencode/notellm"

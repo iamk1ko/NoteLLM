@@ -136,6 +136,9 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
         await redis_client.delete(
             RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(user_id, file_md5)
         )
+        await redis_client.delete(
+            RedisKey.FILE_STORAGE_METADATA.format(user_id, file_md5)
+        )
         logger.debug("已清理临时分片数据：file_md5={}", file_md5)
         db.close()
 

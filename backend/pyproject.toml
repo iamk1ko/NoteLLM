@@ -21,7 +21,7 @@ dependencies = [
     "redis>=5.0.0",
     "aio-pika>=9.4.0",
     "minio>=7.2.0",
-    "uvicorn>=0.40.0",
+    "uvicorn>=0.29.0,<0.40.0",
     "python-multipart>=0.0.22",
     "unstructured[docx,md,pdf]==0.18.11",
     "pymilvus[model]>=2.6.8",

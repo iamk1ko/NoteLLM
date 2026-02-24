@@ -274,6 +274,11 @@
   |--------|------|----------|------|
   | file | file | 是 | 上传的文件 |
 
+- **去重说明**：
+  - 同一用户上传相同 MD5 文件时返回 exists=true
+  - status=FAILED 时允许重新上传
+  - status=UPLOADING 时允许继续分片上传（断点续传）
+
 - **响应格式**：
   - 成功响应：
     ```json
@@ -281,18 +286,37 @@
       "code": 0,
       "message": "OK",
       "data": {
-        "id": 1,
-        "user_id": 1,
+        "exists": false,
+        "file": {
+          "id": 1,
+          "user_id": 1,
+          "filename": "test.pdf",
+          "file_size": 1024,
+          "content_type": "application/pdf",
+          "bucket_name": "rag-files",
+          "object_name": "abc12345/test.pdf",
+          "etag": "abc12345",
+          "is_public": false,
+          "status": 1,
+          "created_at": "2024-01-01T00:00:00",
+          "updated_at": "2024-01-01T00:00:00"
+        }
+      },
+      "timestamp": "2024-01-01T00:00:00"
+    }
+    ```
+
+  - 重复上传响应（用户内重复）：
+    ```json
+    {
+      "code": 0,
+      "message": "OK",
+      "data": {
+        "exists": true,
+        "file_id": 1,
         "filename": "test.pdf",
-        "file_size": 1024,
-        "content_type": "application/pdf",
-        "bucket_name": "rag-files",
-        "object_name": "abc12345/test.pdf",
-        "etag": "abc12345",
-        "is_public": false,
-        "status": 1,
-        "created_at": "2024-01-01T00:00:00",
-        "updated_at": "2024-01-01T00:00:00"
+        "status": 2,
+        "upload_time": "2024-01-01T00:00:00"
       },
       "timestamp": "2024-01-01T00:00:00"
     }
@@ -316,6 +340,10 @@
   | is_public | boolean | 否 | false | 是否为公共文件 |
   | file_chunk | file | 是 | 无 | 分片文件本体 |
 
+- **去重说明**：
+  - 同一用户上传相同 MD5 文件时返回 exists=true
+  - status=FAILED 时允许重新上传
+
 - **响应格式**：
   - 成功响应：
     ```json
@@ -332,7 +360,66 @@
     }
     ```
 
-#### 2.3.3 检查上传完成状态
+  - 重复上传响应（用户内重复）：
+    ```json
+    {
+      "code": 0,
+      "message": "OK",
+      "data": {
+        "exists": true,
+        "file_id": 1,
+        "status": 2
+      },
+      "timestamp": "2024-01-01T00:00:00"
+    }
+    ```
+
+#### 2.3.3 检查文件是否已存在
+
+- **功能说明**：检查当前用户是否已上传同 MD5 文件
+- **请求方法**：GET
+- **URL路径**：/files/check
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
+  |--------|----------|----------|--------|------|
+  | file_md5 | string | 是 | 无 | 文件MD5 |
+
+- **去重说明**：
+  - status=FAILED 时返回 exists=false，允许重新上传
+
+- **响应格式**：
+  - 文件已存在：
+    ```json
+    {
+      "code": 0,
+      "message": "OK",
+      "data": {
+        "exists": true,
+        "file_id": 1,
+        "filename": "test.pdf",
+        "status": 2,
+        "upload_time": "2024-01-01T00:00:00"
+      },
+      "timestamp": "2024-01-01T00:00:00"
+    }
+    ```
+  - 文件不存在或允许重传：
+    ```json
+    {
+      "code": 0,
+      "message": "OK",
+      "data": {
+        "exists": false,
+        "file_id": null,
+        "filename": null,
+        "status": null,
+        "upload_time": null
+      },
+      "timestamp": "2024-01-01T00:00:00"
+    }
+    ```
+
+#### 2.3.4 检查上传完成状态
 
 - **功能说明**：检查文件是否已经完成上传并合并
 - **请求方法**：GET
@@ -357,7 +444,7 @@
     }
     ```
 
-#### 2.3.4 查询文件列表
+#### 2.3.5 查询文件列表
 
 - **功能说明**：分页查询用户文件列表
 - **请求方法**：GET
@@ -391,7 +478,7 @@
     }
     ```
 
-#### 2.3.5 获取文件详情
+#### 2.3.6 获取文件详情
 
 - **功能说明**：获取文件详细信息
 - **请求方法**：GET
@@ -416,7 +503,30 @@
     }
     ```
 
-#### 2.3.6 查询公共文件列表
+#### 2.3.7 获取文件预览地址
+
+- **功能说明**：获取文件的临时预览链接（MinIO Presigned URL）
+- **请求方法**：GET
+- **URL路径**：/files/{file_id}/preview
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
+  |--------|----------|----------|--------|------|
+  | file_id | integer | 是 | 无 | 文件ID |
+
+- **响应格式**：
+  - 成功响应：
+    ```json
+    {
+      "code": 0,
+      "message": "OK",
+      "data": {
+        "url": "http://minio:9000/bucket/file.pdf?..."
+      },
+      "timestamp": "2024-01-01T00:00:00"
+    }
+    ```
+
+#### 2.3.8 查询公共文件列表
 
 - **功能说明**：分页查询公共文件列表
 - **请求方法**：GET
@@ -427,7 +537,7 @@
   | page | integer | 否 | 1 | 页码，从1开始 |
   | size | integer | 否 | 10 | 每页数量，1-100 |
 
-#### 2.3.7 删除文件
+#### 2.3.8 删除文件
 
 - **功能说明**：删除指定文件
 - **请求方法**：DELETE
@@ -449,6 +559,7 @@
       "timestamp": "2024-01-01T00:00:00"
     }
     ```
+
 
 ### 2.4 用户管理接口 (users)
 
@@ -591,3 +702,155 @@
 3. 分页查询接口的page参数从1开始
 4. 所有时间字段返回格式为ISO 8601格式
 5. 错误响应的code字段与HTTP状态码一致，或为特定业务错误码
+6. 基础设施客户端（Redis/MinIO/RabbitMQ/Milvus）统一在应用启动时初始化，并通过依赖注入获取实例
+
+## 7. 待实现功能接口 (To Be Implemented)
+
+### 7.1 社区分享接口 (community) `[待实现]`
+
+#### 7.1.1 发布分享 (Publish Share)
+- **功能说明**：将个人会话及关联文档发布到社区广场
+- **请求方法**：POST
+- **URL路径**：/community/shares
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 说明 |
+  |--------|----------|----------|------|
+  | source_file_id | integer | 是 | 原始文件ID |
+  | session_id | integer | 是 | 关联会话ID (包含问答记录) |
+  | title | string | 是 | 分享标题 |
+  | description | string | 否 | 分享描述/推荐语 |
+  | tags | array[string] | 否 | 标签列表，如 ["Python", "学习笔记"] |
+  | is_public_source | boolean | 否 | 是否公开原始文件下载 (默认false，仅分享问答) |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "data": {
+      "share_id": 101,
+      "publish_time": "..."
+    }
+  }
+  ```
+
+#### 7.1.2 获取社区列表 (Get Community Feed)
+- **功能说明**：分页获取社区分享列表
+- **请求方法**：GET
+- **URL路径**：/community/shares
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 说明 |
+  |--------|----------|----------|------|
+  | page | integer | 否 | 页码，默认1 |
+  | size | integer | 否 | 每页数量，默认10 |
+  | sort | string | 否 | 排序方式: "latest"(最新), "popular"(最热) |
+  | tag | string | 否 | 按标签筛选 |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "items": [
+        {
+          "id": 101,
+          "title": "Python面试题",
+          "description": "整理了常见面试题...",
+          "tags": ["Python", "面试"],
+          "user_id": 1,
+          "user_name": "TechGuru",
+          "view_count": 1240,
+          "like_count": 45,
+          "fork_count": 12,
+          "create_time": "2024-02-20T10:00:00",
+          "is_liked": false  // 当前用户是否已点赞
+        }
+      ],
+      "total": 1,
+      "page": 1,
+      "size": 10
+    }
+  }
+  ```
+
+#### 7.1.3 转存/Fork 分享 (Fork Share)
+- **功能说明**：将他人的分享内容（文档副本+会话副本）保存到自己的空间
+- **请求方法**：POST
+- **URL路径**：/community/shares/{share_id}/fork
+- **请求参数**：无
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "data": {
+      "new_file_id": 205,    // 转存后的新文件ID
+      "new_session_id": 302  // 转存后的新会话ID
+    }
+  }
+  ```
+
+#### 7.1.4 社区点赞 (Like Share)
+- **功能说明**：对某个分享进行点赞或取消点赞
+- **请求方法**：POST
+- **URL路径**：/community/shares/{share_id}/like
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 说明 |
+  |--------|----------|----------|------|
+  | action | string | 是 | "like" 或 "unlike" |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "success": true,
+      "like_count": 46  // 返回最新的点赞数
+    }
+  }
+  ```
+
+### 7.2 智能笔记接口 (notes) `[待实现]`
+
+#### 7.2.1 生成结构化笔记 (Auto Summary)
+- **功能说明**：触发AI根据当前会话的历史记录，生成一份结构化的Markdown总结笔记
+- **请求方法**：POST
+- **URL路径**：/sessions/{session_id}/summary
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 说明 |
+  |--------|----------|----------|------|
+  | focus_topics | array[string] | 否 | 指定总结的关注点/主题 |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "data": {
+      "summary_content": "# 笔记总结\n\n## 核心结论...", // Markdown内容
+      "created_at": "..."
+    }
+  }
+  ```
+
+### 7.3 其他扩展 (extensions) `[待实现]`
+
+#### 7.3.1 更新文件标签 (Update File Tags)
+- **功能说明**：为现有文件添加或修改标签
+- **请求方法**：PUT
+- **URL路径**：/files/{file_id}/tags
+- **请求参数**：
+  | 参数名 | 数据类型 | 是否必填 | 说明 |
+  |--------|----------|----------|------|
+  | tags | array[string] | 是 | 标签列表 |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "id": 101,
+      "tags": ["Python", "面试"]
+    }
+  }
+  ```

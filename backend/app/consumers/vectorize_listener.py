@@ -31,6 +31,7 @@ from app.core.redis_client import get_redis_client
 from app.core.constants import RedisKey
 from app.core.settings import get_settings
 from app.services.vectorization_service import VectorizationService
+from app.services.vectorization.task_state import TaskStateStore
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
@@ -56,9 +57,11 @@ async def _vectorize_task(
         task_status = await redis_client.get(
             RedisKey.FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
         )
+        if isinstance(task_status, (bytes, bytearray)):
+            task_status = task_status.decode("utf-8")
         if task_status == "success":
-            logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
-            return
+            logger.info("Redis 显示向量化成功，清理后重跑：file_md5={}", file_md5)
+            await TaskStateStore(redis_client).clear(file_md5)
 
         settings = get_settings()
 

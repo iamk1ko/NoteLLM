@@ -10,7 +10,7 @@ from enum import IntEnum
 
 
 class FileStorageStatus(IntEnum):
-    """文件状态枚举：0-上传中，1-已上传，2-已向量化，3-失败/删除"""
+    """文件状态枚举：0-上传中，1-已上传，2-已向量化，3-失败"""
 
     UPLOADING = 0
     UPLOADED = 1

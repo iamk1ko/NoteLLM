@@ -345,6 +345,22 @@ class FileStorageCRUD:
         return result
 
     @staticmethod
+    async def get_user_file_by_md5_async(
+        db: AsyncSession, user_id: int, file_md5: str
+    ) -> FileStorage | None:
+        """根据用户与文件 MD5 查询文件记录。"""
+
+        result = await db.scalar(
+            select(FileStorage).where(
+                and_(
+                    FileStorage.user_id == user_id,
+                    FileStorage.etag == file_md5,
+                )
+            )
+        )
+        return result
+
+    @staticmethod
     def update_file_upload_complete(
         db: Session,
         file_id: int,
@@ -421,6 +437,22 @@ class FileStorageCRUD:
         )
 
         return files, total
+
+    @staticmethod
+    async def list_files_by_status_async(
+        db: AsyncSession, status: int, limit: int = 1000, offset: int = 0
+    ) -> Sequence[FileStorage]:
+        """按状态列出文件列表（不做权限过滤）。"""
+
+        stmt = (
+            select(FileStorage)
+            .where(FileStorage.status == status)
+            .order_by(FileStorage.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.scalars(stmt)
+        return result.all()
 
     @staticmethod
     def update_file_status(

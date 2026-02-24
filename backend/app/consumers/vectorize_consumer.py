@@ -13,14 +13,15 @@ from app.core.rabbitmq_client import (
 )
 from app.core.redis_client import get_redis_client
 from app.core.constants import RedisKey
-from app.core.settings import get_settings
 from app.services.vectorization_service import VectorizationService
-from app.services.vectorization.vector_store import MilvusVectorStore
+from app.services.vectorization.task_state import TaskStateStore
+from app.core.settings import get_settings
+from app.core.providers import InfraProvider
 
 logger = get_logger(__name__)
 
 
-async def _vectorize_task(payload: dict[str, Any]) -> None:
+async def _vectorize_task(payload: dict[str, Any], milvus_store) -> None:
     db = get_sessionmaker()()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
@@ -35,27 +36,21 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
         task_status = await redis_client.get(
             RedisKey.FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
         )
+        if isinstance(task_status, (bytes, bytearray)):
+            task_status = task_status.decode("utf-8")
         if task_status == "success":
-            logger.info("向量化任务已完成，跳过：file_md5={}", file_md5)
-            return
+            logger.info("Redis 显示向量化成功，清理后重跑：file_md5={}", file_md5)
+            await TaskStateStore(redis_client).clear(file_md5)
 
-        settings = get_settings()
-        vector_store = MilvusVectorStore(
-            uri=settings.MILVUS_URI,
-            collection_name=settings.VECTOR_COLLECTION,
-            dim=settings.EMBEDDING_DIM,
-        )
-
-        # 确保集合已初始化 (创建或加载)
-        await vector_store.init_collection()
+        vector_store = milvus_store
 
         service = VectorizationService(
             db=db,
             redis_client=redis_client,
             minio_client=minio_client,
             vector_store=vector_store,
-            memory_threshold_mb=settings.VECTOR_MEMORY_THRESHOLD_MB,
-            vector_batch_size=settings.VECTOR_BATCH_SIZE,
+            memory_threshold_mb=get_settings().VECTOR_MEMORY_THRESHOLD_MB,
+            vector_batch_size=get_settings().VECTOR_BATCH_SIZE,
         )
         await service.vectorize_file(
             file_id=file_id,
@@ -71,7 +66,13 @@ async def _vectorize_task(payload: dict[str, Any]) -> None:
 
 
 async def run_vectorize_consumer() -> None:
-    connection = await get_rabbitmq_connection()
+    infra = InfraProvider()
+    await infra.init()
+    if infra.rabbitmq is None or infra.milvus is None:
+        logger.error("向量化消费者启动失败：RabbitMQ 或 Milvus 未初始化")
+        return
+
+    connection = infra.rabbitmq
     channel = await connection.channel()
     try:
         queue = await channel.declare_queue(
@@ -86,10 +87,10 @@ async def run_vectorize_consumer() -> None:
             async for message in queue_iter:
                 async with message.process():
                     payload = json.loads(message.body.decode("utf-8"))
-                    await _vectorize_task(payload)
+                    await _vectorize_task(payload, infra.milvus)
     finally:
         await channel.close()
-        await connection.close()
+        await infra.close()
 
 
 if __name__ == "__main__":

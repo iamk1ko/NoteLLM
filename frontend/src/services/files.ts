@@ -39,6 +39,33 @@ const calculateMD5 = (file: File): Promise<string> => {
 };
 
 /**
+ * Get Files List (Paged)
+ * GET /files
+ */
+export const fetchFiles = async (params: { page?: number; size?: number; include_public?: boolean } = {}): Promise<PaginatedResponse<FileItem>> => {
+  const { data } = await http.get<ApiResponse<PaginatedResponse<FileItem>>>("/files", { params });
+  return data.data; 
+};
+
+/**
+ * Get File Detail
+ * GET /files/{id}
+ */
+export const fetchFileDetail = async (id: number | string): Promise<FileItem> => {
+  const { data } = await http.get<ApiResponse<FileItem>>(`/files/${id}`);
+  return data.data;
+};
+
+/**
+ * Get File Preview URL
+ * GET /files/{id}/preview
+ */
+export const getFilePreview = async (id: number | string): Promise<string> => {
+  const { data } = await http.get<ApiResponse<{ url: string }>>(`/files/${id}/preview`);
+  return data.data.url;
+};
+
+/**
  * Upload Chunk
  * POST /files/upload/chunk
  */
@@ -72,9 +99,11 @@ const checkUploadComplete = async (fileId: number): Promise<FileItem | null> => 
  */
 export const uploadFile = async (
   file: File,
-  onProgress?: (progress: UploadProgress) => void
+  onProgress?: (progress: UploadProgress) => void,
+  onStatusChange?: (status: 'uploading' | 'merging' | 'vectorizing' | 'completed' | 'failed') => void
 ): Promise<FileItem> => {
   // 1. Calculate MD5
+  if (onStatusChange) onStatusChange('uploading');
   const fileMd5 = await calculateMD5(file);
 
   // 2. Chunk Configuration
@@ -127,21 +156,52 @@ export const uploadFile = async (
     throw new Error("Upload failed: No file ID returned from server.");
   }
 
-  // 5. Poll for Completion (Wait for Merge)
-  for (let i = 0; i < 60; i++) { // Wait up to 60s
-     await new Promise(r => setTimeout(r, 1000));
+  // 5. Poll for Completion (Wait for Merge & Vectorization)
+  if (onStatusChange) onStatusChange('merging');
+  
+  // Optimization: Vectorization takes time (usually 10s+). 
+  // Strategy: Initial delay + Adaptive polling to reduce backend load.
+  
+  // Step A: Initial wait (Give server some time to start processing)
+  await new Promise(r => setTimeout(r, 2000)); 
+
+  let delay = 1000; // Start with 1s interval
+  const maxDelay = 5000; // Cap at 5s interval
+  const maxTime = 180000; // 3 minutes timeout
+  let elapsedTime = 0;
+
+  while (elapsedTime < maxTime) {
+     // Check status
      const fileObj = await checkUploadComplete(fileId);
-     // Status: 1 (Ready/Uploaded), 2 (Vectorized), 3 (Failed)
-     // If status >= 1, it means merge is done.
-     if (fileObj && fileObj.status >= 1 && fileObj.status !== 3) { 
-        return fileObj;
+     
+     if (fileObj) {
+       // Status: 2=Embedded(Success), 3=Failed
+       if (fileObj.status === 2) {
+         if (onStatusChange) onStatusChange('completed');
+         return fileObj;
+       }
+       
+       if (fileObj.status === 3) {
+         if (onStatusChange) onStatusChange('failed');
+         throw new Error("Upload failed: Server processing error.");
+       }
+
+       // Status: 1=Uploaded(Merging/Vectorizing)
+       if (fileObj.status === 1) {
+         if (onStatusChange) onStatusChange('vectorizing');
+       }
      }
-     if (fileObj && fileObj.status === 3) {
-        throw new Error("Upload failed: Server processing error.");
-     }
+
+     // Wait for next poll
+     await new Promise(r => setTimeout(r, delay));
+     elapsedTime += delay;
+
+     // Adaptive backoff: Increase delay slightly each time, up to maxDelay
+     // This reduces request frequency for long-running tasks
+     delay = Math.min(delay + 1000, maxDelay);
   }
 
-  throw new Error("Upload timeout: File merge taking too long.");
+  throw new Error("Upload timeout: File processing taking too long.");
 };
 
 /**

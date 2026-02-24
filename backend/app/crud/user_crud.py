@@ -104,6 +104,20 @@ class UserCRUD:
         return await db.get(User, user_id)
 
     @staticmethod
+    async def get_user_by_username_async(
+        db: AsyncSession, username: str
+    ) -> User | None:
+        """根据用户名获取用户。"""
+
+        return await db.scalar(select(User).where(User.username == username))
+
+    @staticmethod
+    async def get_user_by_email_async(db: AsyncSession, email: str) -> User | None:
+        """根据邮箱获取用户。"""
+
+        return await db.scalar(select(User).where(User.email == email))
+
+    @staticmethod
     def create_user(db: Session, user: User) -> User:
         """创建用户。"""
 

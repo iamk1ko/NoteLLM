@@ -12,7 +12,7 @@ class UserBase(BaseModel):
     - 这里不含密码，避免在列表/详情里误返回
     """
 
-    username: str = Field(..., min_length=3, max_length=20, description="用户名")
+    username: str = Field(..., min_length=1, max_length=20, description="用户名")
     name: str = Field(..., min_length=1, max_length=10, description="姓名")
     role: str = Field("user", description="用户角色：user-普通用户，admin-管理员")
     status: int = Field(1, ge=1, le=3, description="用户状态：1-正常，2-禁用，3-删除")
@@ -28,11 +28,11 @@ class UserCreate(UserBase):
     """用户创建模型。
 
     说明：
-    - password 需要传入哈希后的字符串
-    - 学习项目中可以先明文，后续接入加密再替换
+    - 本地学习阶段使用明文密码
+    - 后续可替换为哈希存储
     """
 
-    password: str = Field(..., min_length=6, max_length=255, description="密码hash")
+    password: str = Field(..., min_length=1, max_length=255, description="密码")
 
 
 class UserUpdate(BaseModel):
@@ -44,11 +44,9 @@ class UserUpdate(BaseModel):
     """
 
     username: str | None = Field(
-        None, min_length=3, max_length=20, description="用户名"
+        None, min_length=1, max_length=20, description="用户名"
     )
-    password: str | None = Field(
-        None, min_length=6, max_length=255, description="密码hash"
-    )
+    password: str | None = Field(None, min_length=1, max_length=255, description="密码")
     name: str | None = Field(None, min_length=1, max_length=10, description="姓名")
     role: str | None = Field(None, description="用户角色：user-普通用户，admin-管理员")
     status: int | None = Field(

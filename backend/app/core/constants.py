@@ -13,6 +13,7 @@ class RedisKey(str, Enum):
     FILE_VECTORIZATION_TASK_RETRYABLE = "vector:task:retryable:{}"
     FILE_VECTORIZATION_TASK_UPDATED_AT = "vector:task:updated_at:{}"
     FILE_VECTORIZATION_TASK_CURSOR = "vector:cursor:{}"
+    USER_SESSION = "auth:session:{}"
 
 
 @unique

@@ -206,6 +206,8 @@ const statusText = computed(() => {
 
 .actions {
   opacity: 1; /* Always visible in retro style */
+  display: flex;
+  gap: 8px;
 }
 
 .action-btn {

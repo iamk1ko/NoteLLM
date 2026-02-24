@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 # 公共 API：只暴露这些名字（也用于 `from app.models import *`）。
 __all__ = [
     "User",
+    "UserStatus",
+    "UserRole",
     "ChatSession",
     "ChatMessage",
     "ChatContext",
@@ -35,6 +37,8 @@ __all__ = [
 # 注意：这里只写字符串，不会在 import app.models 时产生任何 ORM 导入副作用。
 _LAZY_IMPORTS: dict[str, str] = {
     "User": "app.models.users:User",
+    "UserStatus": "app.models.users:UserStatus",
+    "UserRole": "app.models.users:UserRole",
     "ChatSession": "app.models.chat_session:ChatSession",
     "ChatMessage": "app.models.chat_message:ChatMessage",
     "ChatContext": "app.models.chat_context:ChatContext",

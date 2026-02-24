@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,7 +9,7 @@ from app.api.v1.router import api_router
 from app.consumers.file_merge_listener import start_file_merge_listener
 from app.consumers.vectorize_listener import start_vectorize_listener
 from app.core.app_state import get_app_state
-from app.core.db import Base, init_db, get_engine, close_db
+from app.core.db import Base, init_db, get_engine, close_db, get_async_sessionmaker
 from app.core.exceptions import (
     http_exception_handler,
     unhandled_exception_handler,
@@ -98,6 +98,16 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def db_session_middleware(request: Request, call_next):
+    session_factory = get_async_sessionmaker()
+    async with session_factory() as session:
+        request.state.db = session
+        response = await call_next(request)
+    return response
+
 
 # TraceId 中间件
 app.add_middleware(TraceIdMiddleware)

@@ -4,65 +4,51 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
+from app.core.constants import RedisKey
+from app.core.logging import get_logger
+from app.core.redis_client import get_redis_client
+from app.crud import UserCRUD
 from app.models import User
+
+logger = get_logger(__name__)
 
 
 async def get_current_user_optional(request: Request) -> User | None:
     """获取当前登录用户（可选）。
 
     说明：
-    - 从请求中解析 JWT Token
-    - 如果未登录或 Token 无效，返回 None
-    - 用于不需要强制登录的接口
-
-    使用示例：
-        ```python
-        @router.get("/public-data")
-        def get_public_data(current_user: User | None = Depends(get_current_user_optional)):
-            if current_user:
-                # 已登录用户可以看到更多信息
-                return {"data": "public + private"}
-            else:
-                # 未登录用户只能看到公开信息
-                return {"data": "public only"}
-        ```
-
-    注意事项：
-    - 当前实现为占位符，需要后续实现具体的 JWT 解析逻辑
-    - 生产环境中应实现：
-      1. 从请求头或 Cookie 中获取 Token
-      2. 验证 Token 签名和过期时间
-      3. 从 Token 中解析用户 ID
-      4. 从数据库加载用户信息
+    - 从 Cookie 中解析 session_id
+    - 如果未登录或 session 无效，返回 None
     """
 
-    # TODO: 实现 JWT Token 解析逻辑
-    # 占位符实现：从请求头或 Cookie 中获取用户信息
-    token = request.headers.get("Authorization")
-    if not token:
+    session_id = request.cookies.get("session_id")
+    if not session_id:
         return None
 
-    # 提取 Bearer Token
-    if token.startswith("Bearer "):
-        token = token[7:]
+    redis_client = get_redis_client()
+    user_id = await redis_client.get(RedisKey.USER_SESSION.format(session_id))
+    if not user_id:
+        return None
 
-    # TODO: 验证 Token 并解析用户 ID
-    # 示例：
-    # try:
-    #     payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-    #     user_id = payload.get("user_id")
-    #     db = request.state.db  # 需要确保数据库连接可用
-    #     user = db.get(User, user_id)
-    #     return user
-    # except JWTError:
-    #     return None
+    try:
+        user_id_int = int(user_id)
+    except (TypeError, ValueError):
+        return None
 
-    # 临时占位符：直接返回 None（表示未登录）
-    return None
+    db = request.state.db
+    if db is None:
+        return None
+
+    user = await UserCRUD.get_user_by_id_async(db, user_id_int)
+    if user is None:
+        return None
+
+    logger.debug("当前登录用户解析成功：user_id={}", user.id)
+    return user
 
 
 async def get_current_user(
-        current_user: Annotated[User | None, Depends(get_current_user_optional)],
+    current_user: Annotated[User | None, Depends(get_current_user_optional)],
 ) -> User:
     """获取当前登录用户（必需）。
 
@@ -87,15 +73,11 @@ async def get_current_user(
     - 403 Forbidden: 用户权限不足（配合 require_admin 使用）
     """
 
-    # if current_user is None:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_401_UNAUTHORIZED,
-    #         detail="未提供认证信息或认证信息无效",
-    #         headers={"WWW-Authenticate": "Bearer"},
-    #     )
-
-    # TODO: 目前模拟一个用户出来，后续集成用户系统后删除此行
-    current_user = User(id=1, username="kiko", role="admin")
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未提供认证信息或认证信息无效",
+        )
 
     return current_user
 
@@ -138,9 +120,9 @@ def require_admin(current_user: Annotated[User, Depends(get_current_user)]) -> U
 
 
 def require_ownership(
-        current_user: Annotated[User, Depends(get_current_user)],
-        owner_id: int | None = None,
-        resource_user_id: int | None = None,
+    current_user: Annotated[User, Depends(get_current_user)],
+    owner_id: int | None = None,
+    resource_user_id: int | None = None,
 ) -> bool:
     """检查资源所有权或管理员权限。
 

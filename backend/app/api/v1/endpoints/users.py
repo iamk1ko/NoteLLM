@@ -14,6 +14,8 @@ from app.schemas.users import (
     UserListResponse,
     SimpleResponse,
 )
+from app.dependencies import get_current_user
+from app.models import User
 from app.schemas.response import ApiResponse
 
 router = APIRouter(tags=["users"])
@@ -70,6 +72,15 @@ async def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return ApiResponse.ok(UserOut.model_validate(user))
+
+
+@router.get("/users/me", response_model=ApiResponse[UserOut])
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[UserOut]:
+    """获取当前登录用户信息。"""
+
+    return ApiResponse.ok(UserOut.model_validate(current_user))
 
 
 @router.post("/users", response_model=ApiResponse[UserOut])

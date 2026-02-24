@@ -37,6 +37,7 @@
         :key="file.id" 
         :file="file"
         @click="goChat(file.id)"
+        @preview="handlePreview"
         @delete="confirmDelete"
       />
     </div>
@@ -59,7 +60,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
-import { deleteFile } from '@/services/files';
+import { deleteFile, getFilePreview } from '@/services/files';
 import FileCard from '@/components/FileCard.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
@@ -86,6 +87,23 @@ const filteredFiles = computed(() => {
 // 跳转
 const goUpload = () => router.push('/upload');
 const goChat = (id: string) => router.push(`/chat/${id}`);
+
+/**
+ * 预览文件 (Preview File)
+ * 获取MinIO预签名链接并打开新标签页
+ */
+const handlePreview = async (id: string) => {
+  try {
+    const url = await getFilePreview(id);
+    if (url) {
+      window.open(url, '_blank');
+    } else {
+      ElMessage.warning('无法获取预览链接');
+    }
+  } catch (e) {
+    ElMessage.error('获取预览失败');
+  }
+};
 
 /**
  * 确认删除操作 (Confirm Delete)

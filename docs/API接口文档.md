@@ -1420,3 +1420,116 @@
 |----|------|
 | like | 点赞 |
 | unlike | 取消点赞 |
+
+---
+
+## 8. 待实现接口 (Feature Wishlist)
+
+以下接口为前端已实现但后端尚未支持的功能，标记为"待实现"。
+
+### 8.1 重新生成回答 (Regenerate Response)
+
+- **功能说明**：重新生成AI回答（当用户对回答不满意时）
+- **请求方法**：POST
+- **URL路径**：/sessions/{session_id}/messages/regenerate
+- **是否需要登录**：是
+- **请求参数**：
+
+| 参数名 | 数据类型 | 是否必填 | 说明 |
+|--------|----------|----------|------|
+| session_id | integer | 是 | 会话ID |
+| message_id | integer | 否 | 需要重新生成的消息ID（默认最后一条） |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "message": {
+        "id": 123,
+        "session_id": 1,
+        "content": "这是重新生成的回答...",
+        "role": "assistant",
+        "create_time": "2024-01-01T12:00:00"
+      }
+    },
+    "timestamp": "2024-01-01T12:00:00"
+  }
+  ```
+
+### 8.2 消息反馈 (Message Feedback)
+
+- **功能说明**：用户对AI回答进行评价（点赞/踩）
+- **请求方法**：POST
+- **URL路径**：/sessions/{session_id}/messages/{message_id}/feedback
+- **是否需要登录**：是
+- **请求参数**：
+
+| 参数名 | 数据类型 | 是否必填 | 说明 |
+|--------|----------|----------|------|
+| feedback_type | string | 是 | 反馈类型： thumbs_up (点赞) / thumbs_down (踩) |
+| feedback_reason | string | 否 | 反馈原因（可选） |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "success": true
+    },
+    "timestamp": "2024-01-01T12:00:00"
+  }
+  ```
+
+### 8.3 获取对话Token统计 (Token Usage Stats)
+
+- **功能说明**：获取当前会话的Token使用统计
+- **请求方法**：GET
+- **URL路径**：/sessions/{session_id}/usage
+- **是否需要登录**：是
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "total_tokens": 1500,
+      "prompt_tokens": 500,
+      "completion_tokens": 1000,
+      "cost": 0.005
+    },
+    "timestamp": "2024-01-01T12:00:00"
+  }
+  ```
+
+### 8.4 编辑消息 (Edit Message)
+
+- **功能说明**：用户编辑已发送的消息并重新获取AI回答
+- **请求方法**：PUT
+- **URL路径**：/sessions/{session_id}/messages/{message_id}
+- **是否需要登录**：是
+- **请求参数**：
+
+| 参数名 | 数据类型 | 是否必填 | 说明 |
+|--------|----------|----------|------|
+| content | string | 是 | 新的消息内容 |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "message": {
+        "id": 123,
+        "session_id": 1,
+        "content": "这是编辑后的内容及新的AI回复...",
+        "role": "assistant",
+        "create_time": "2024-01-01T12:00:00"
+      }
+    },
+    "timestamp": "2024-01-01T12:00:00"
+  }
+  ```

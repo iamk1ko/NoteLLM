@@ -128,23 +128,58 @@
         >
           <!-- User Message -->
           <div v-if="msg.role === 'user'" class="message message--user">
-            <div class="message-content">
-              <span class="prompt-char">></span> {{ msg.content }}
+            <div class="message-header">
+              <div class="user-avatar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+              </div>
+              <span class="message-time">{{ formatTime(msg.create_time) }}</span>
+              <button class="copy-btn" @click="copyToClipboard(msg.content)" title="复制">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="message-content user-content">
+              {{ msg.content }}
             </div>
           </div>
 
           <!-- AI Message -->
           <div v-else class="message message--ai">
-            <div class="ai-avatar">CPU</div>
-            <div class="message-content">
-              <div class="markdown-body">{{ msg.content }}</div>
+            <div class="ai-avatar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"></path>
+                <path d="M12 6v6l4 2"></path>
+              </svg>
+            </div>
+            <div class="message-content-wrapper">
+              <div class="message-header ai-header">
+                <span class="message-time">{{ formatTime(msg.create_time) }}</span>
+                <button class="copy-btn" @click="copyToClipboard(msg.content)" title="复制">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="message-content ai-content" v-html="renderMarkdown(msg.content)"></div>
               
               <!-- Sources -->
               <div v-if="msg.sources?.length" class="sources-list">
-                <div class="sources-title">数据来源 SOURCE_DATA:</div>
+                <div class="sources-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  参考资料
+                </div>
                 <div v-for="(source, idx) in msg.sources" :key="idx" class="source-item">
-                  <span class="source-score">可信度:{{ (source.score * 100).toFixed(0) }}%</span>
-                  <p>{{ source.snippet }}</p>
+                  <span class="source-score">{{ (source.score * 100).toFixed(0) }}% 匹配</span>
+                  <p class="source-snippet">{{ source.snippet }}</p>
                 </div>
               </div>
             </div>
@@ -197,9 +232,30 @@ import { formatSize, formatTime } from '@/utils/format';
 import { communityService } from '@/services/community';
 import { getFilePreview } from '@/services/files';
 import { sendMessageStream } from '@/services/qa';
-import FilePreviewModal from '@/components/FilePreviewModal.vue';
+import MarkdownIt from 'markdown-it';
 import { ElMessage } from 'element-plus';
+import FilePreviewModal from '@/components/FilePreviewModal.vue';
 import type { MessageItem } from '@/services/types';
+
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+  breaks: true,
+});
+
+const renderMarkdown = (content: string) => {
+  return md.render(content || '');
+};
+
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success('已复制到剪贴板');
+  } catch {
+    ElMessage.error('复制失败');
+  }
+};
 
 /**
  * ChatView Component
@@ -479,25 +535,42 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== RETRO PIXEL GAME THEME ===== */
+
+/* Chat Layout */
 .chat-layout {
   display: flex;
-  height: calc(100vh - 72px); /* Subtract navbar height only */
-  background: white;
+  height: calc(100vh - 72px);
+  background: #000;
   overflow: hidden;
   position: relative;
-  border-top: 4px solid black;
-  margin: -40px; /* Offset parent padding */
+  margin: -40px;
+  font-family: 'Courier New', monospace;
 }
 
-/* Sidebar */
+/* Sidebar - Retro RPG Panel Style */
 .chat-sidebar {
   width: 320px;
-  border-right: 4px solid black;
-  background: var(--nl-bg);
+  border-right: 4px solid #ffd700;
+  background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
   display: flex;
   flex-direction: column;
-  transition: width 0.1s steps(2);
   flex-shrink: 0;
+  position: relative;
+}
+
+.chat-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(rgba(255,215,0,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,215,0,0.03) 1px, transparent 1px);
+  background-size: 8px 8px;
+  pointer-events: none;
 }
 
 .chat-sidebar.collapsed {
@@ -531,255 +604,607 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  border-bottom: 4px solid black;
-  background: #f0f0f0;
+  border-bottom: 4px solid #ffd700;
+  background: #2d1b4e;
 }
 
 .sidebar-title {
-  font-family: var(--font-display);
-  font-size: 16px;
-  color: black;
+  font-size: 14px;
+  color: #ffd700;
   font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 2px 2px 0 #000;
 }
 
 .sidebar-content {
   padding: 24px;
   overflow-y: auto;
-  background-image: linear-gradient(#e5e7eb 1px, transparent 1px);
-  background-size: 100% 24px; /* Notebook lines */
+  flex: 1;
 }
 
+/* Retro RPG Quest Card */
 .notebook-card {
   text-align: center;
   margin-bottom: 24px;
-  border: 4px solid black;
-  background: white;
-  padding: 16px;
+  border: 4px solid #ffd700;
+  background: #1a1a2e;
+  padding: 20px;
   position: relative;
-  box-shadow: 6px 6px 0px black;
+  box-shadow: 
+    4px 4px 0 #000,
+    inset 0 0 20px rgba(255, 215, 0, 0.1);
+}
+
+.notebook-card::before {
+  content: '📜';
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 24px;
+  background: #0f0f1a;
+  padding: 0 8px;
 }
 
 .notebook-hole-punch {
-  width: 12px;
-  height: 12px;
-  background: #333;
-  border-radius: 50%;
-  position: absolute;
-  top: 10px;
-  left: 10px;
+  display: none;
 }
-.notebook-hole-punch.right { left: auto; right: 10px; }
 
 .file-name-lg {
   font-size: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
   word-break: break-word;
-  font-family: var(--font-display);
+  color: #fff;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .file-meta-lg {
   font-size: 14px;
-  color: #555;
+  color: #888;
   margin-bottom: 12px;
-  font-family: var(--font-body);
+  font-family: 'Courier New', monospace;
 }
 
 .upload-time {
   font-size: 12px;
-  color: #888;
+  color: #666;
   margin-top: 8px;
-  font-family: var(--font-body);
+  font-family: 'Courier New', monospace;
 }
 
+/* Status Pills - Retro RPG Style */
+.pill {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  border: 2px solid;
+  margin: 4px 2px;
+  font-family: 'Courier New', monospace;
+}
+
+.pill--success {
+  background: #00ff00;
+  color: #000;
+  border-color: #00aa00;
+  box-shadow: 2px 2px 0 #004400;
+}
+
+.pill--warning {
+  background: #ffff00;
+  color: #000;
+  border-color: #aaaa00;
+  box-shadow: 2px 2px 0 #444400;
+  animation: blink-yellow 1s step-end infinite;
+}
+
+.pill--failed {
+  background: #ff0000;
+  color: #fff;
+  border-color: #aa0000;
+  box-shadow: 2px 2px 0 #440000;
+}
+
+@keyframes blink-yellow {
+  50% { opacity: 0.7; }
+}
+
+/* Sidebar Section */
 .sidebar-section {
   margin-bottom: 24px;
+  border: 2px dashed #ffd700;
+  padding: 16px;
+  background: rgba(255, 215, 0, 0.05);
 }
 
 .sidebar-section h3 {
-  font-size: 14px;
+  font-size: 12px;
   margin-bottom: 12px;
-  background: black;
-  color: white;
+  background: #ffd700;
+  color: #000;
   display: inline-block;
-  padding: 2px 6px;
+  padding: 4px 8px;
+  font-weight: bold;
+  text-transform: uppercase;
 }
 
 .summary-text {
-  font-size: 16px;
-  line-height: 1.5; /* Align with grid lines */
-  color: black;
-  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: #aaa;
+  font-family: 'Courier New', monospace;
 }
 
-.full-width { width: 100%; }
+/* Action Buttons */
+.btn {
+  padding: 12px 16px;
+  border: 3px solid;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #000;
+}
+
+.btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 #000;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary {
+  background: #ff00ff;
+  color: #fff;
+  border-color: #aa00aa;
+}
+
+.btn-secondary {
+  background: #00ffff;
+  color: #000;
+  border-color: #00aaaa;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 2px dashed #888;
+  color: #888;
+  box-shadow: none;
+}
+
+.mr-2 { margin-right: 8px; }
+.mb-3 { margin-bottom: 12px; }
 
 .icon-btn {
-  background: white;
-  border: 2px solid black;
+  background: #ffd700;
+  border: 2px solid #000;
   cursor: pointer;
   padding: 6px;
-  color: black;
+  color: #000;
   display: flex;
-  box-shadow: 2px 2px 0px black;
+  box-shadow: 2px 2px 0 #000;
 }
 
 .icon-btn:hover {
   transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0px black;
-  background: #ec4899;
-  color: white;
+  box-shadow: 1px 1px 0 #000;
+  background: #ff00ff;
+  color: #fff;
 }
 
-/* Chat Main */
+/* ===== MAIN CHAT AREA - RETRO GAME CONSOLE ===== */
 .chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #111; /* Terminal Dark Background */
+  background: #0a0a0a;
   position: relative;
-  color: #33ff00; /* Terminal Green */
-  font-family: var(--font-body);
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+}
+
+/* Scanline effect */
+.chat-main::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 100;
 }
 
 .chat-header {
-  height: 60px;
-  border-bottom: 4px solid #33ff00;
+  height: 56px;
+  border-bottom: 4px solid #00ff00;
   display: flex;
   align-items: center;
-  padding: 0 24px;
+  justify-content: space-between;
+  padding: 0 20px;
   background: #000;
+  position: relative;
+  z-index: 10;
 }
 
 .header-title {
-  font-size: 16px;
-  color: #33ff00;
-  font-family: var(--font-body);
-}
-
-.status-cursor {
-  animation: blink 1s step-end infinite;
-  margin-left: 4px;
+  font-size: 14px;
+  color: #00ff00;
   font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 10px #00ff00;
 }
 
+.status-indicator {
+  font-size: 12px;
+  padding: 4px 8px;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+}
+
+.status-ready {
+  background: #00ff00;
+  color: #000;
+}
+
+.status-busy {
+  background: #ffff00;
+  color: #000;
+  animation: blink 0.5s step-end infinite;
+}
+
+.status-error {
+  background: #ff0000;
+  color: #fff;
+}
+
+@keyframes blink {
+  50% { opacity: 0.5; }
+}
+
+/* Messages Container */
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.empty-chat {
-  text-align: center;
-  margin-top: 100px;
-  color: #33ff00;
-  opacity: 0.7;
-}
-
-.empty-icon { font-size: 48px; margin-bottom: 16px; filter: grayscale(100%) contrast(200%); }
-
-.message-wrapper {
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Empty State */
+.empty-chat {
+  text-align: center;
+  margin-top: 80px;
+  color: #00ff00;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  filter: grayscale(100%);
+  animation: float 2s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Message Wrapper */
+.message-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 85%;
 }
 
 .message {
   display: flex;
   gap: 12px;
-  max-width: 90%;
+  padding: 12px;
+  border: 3px solid;
 }
 
+/* User Message - Player Style */
 .message--user {
-  align-self: flex-start; /* Terminal style: user is also left aligned usually, but let's keep it distinct */
+  align-self: flex-end;
+  background: #0066cc;
   color: #fff;
-  width: 100%;
-  border-bottom: 1px dashed #555;
-  padding-bottom: 12px;
+  border-color: #004499;
+  box-shadow: 4px 4px 0 #000;
 }
 
-.message--user .message-content {
-  font-weight: bold;
+.message--user .message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed rgba(255,255,255,0.3);
+  padding-bottom: 8px;
 }
 
-.prompt-char { color: #ec4899; margin-right: 8px; }
-
-.message--ai {
-  align-self: flex-start;
-  width: 100%;
-}
-
-.ai-avatar {
-  width: 40px;
-  height: 40px;
-  background: #33ff00;
-  color: black;
-  border: 2px solid #33ff00;
+.message--user .user-avatar {
+  width: 24px;
+  height: 24px;
+  background: #ffd700;
+  border: 2px solid #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
   font-size: 12px;
-  flex-shrink: 0;
-  font-family: var(--font-display);
 }
 
-.message--ai .message-content {
-  color: #33ff00;
-  padding: 0 16px;
-  font-size: 18px;
-  line-height: 1.4;
+.message--user .message-time {
+  font-size: 10px;
+  color: rgba(255,255,255,0.7);
 }
 
-.sources-list {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 2px dashed #33ff00;
+.message--user .copy-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  padding: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message--user:hover .copy-btn {
+  opacity: 1;
+}
+
+.message-content {
+  line-height: 1.5;
   font-size: 14px;
+  word-wrap: break-word;
+}
+
+/* AI Message - NPC Style */
+.message--ai {
+  align-self: flex-start;
+  background: #1a1a2e;
+  color: #00ff00;
+  border-color: #00ff00;
+  box-shadow: 4px 4px 0 #004400;
+  max-width: 95%;
+}
+
+.message--ai .ai-avatar {
+  width: 40px;
+  height: 40px;
+  background: #00ff00;
+  color: #000;
+  border: 3px solid #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 10px;
+  flex-shrink: 0;
+  box-shadow: 2px 2px 0 #004400;
+}
+
+.message--ai .message-content-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.message--ai .message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed #004400;
+  padding-bottom: 8px;
+}
+
+.message--ai .message-time {
+  font-size: 10px;
+  color: #008800;
+}
+
+.message--ai .copy-btn {
+  background: transparent;
+  border: none;
+  color: #008800;
+  cursor: pointer;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message--ai:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: #00ff00;
+}
+
+/* AI Content - Terminal Style */
+.ai-content {
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  line-height: 1.6;
+}
+
+.ai-content :deep(h1),
+.ai-content :deep(h2),
+.ai-content :deep(h3),
+.ai-content :deep(h4),
+.ai-content :deep(h5),
+.ai-content :deep(h6) {
+  color: #ffd700;
+  margin: 12px 0 8px;
+  font-weight: bold;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.ai-content :deep(p) {
+  margin-bottom: 8px;
+}
+
+.ai-content :deep(ul),
+.ai-content :deep(ol) {
+  padding-left: 20px;
+  margin-bottom: 8px;
+}
+
+.ai-content :deep(li) {
+  margin-bottom: 4px;
+}
+
+.ai-content :deep(code) {
+  background: #003300;
+  color: #ff00ff;
+  padding: 2px 6px;
+  font-family: 'Courier New', monospace;
+}
+
+.ai-content :deep(pre) {
+  background: #001100;
+  border: 2px solid #00ff00;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.ai-content :deep(pre code) {
+  background: transparent;
+  color: #00ff00;
+}
+
+.ai-content :deep(blockquote) {
+  border-left: 4px solid #ffd700;
+  padding-left: 12px;
+  margin: 8px 0;
+  color: #888;
+  font-style: italic;
+}
+
+.ai-content :deep(a) {
+  color: #00ffff;
+  text-decoration: underline;
+}
+
+.ai-content :deep(a:hover) {
+  color: #ff00ff;
+}
+
+.ai-content :deep(hr) {
+  border: none;
+  border-top: 2px dashed #004400;
+  margin: 12px 0;
+}
+
+/* Sources - Quest Items */
+.sources-list {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 2px dashed #004400;
 }
 
 .sources-title {
-  font-weight: 600;
+  font-size: 11px;
+  color: #ffd700;
+  font-weight: bold;
+  text-transform: uppercase;
   margin-bottom: 8px;
-  color: #ec4899;
-  font-family: var(--font-display);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .source-item {
-  background: rgba(51, 255, 0, 0.1);
+  background: #001100;
+  border: 2px solid #004400;
   padding: 8px;
-  border: 1px solid #33ff00;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .source-score {
-  float: right;
-  font-weight: 600;
-  color: #ec4899;
+  display: inline-block;
+  background: #00ff00;
+  color: #000;
+  font-size: 10px;
+  padding: 2px 6px;
+  font-weight: bold;
+}
+
+.source-snippet {
+  font-size: 12px;
+  color: #888;
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+
+/* Loading State */
+.loading-message {
+  background: #1a1a2e !important;
+}
+
+.typing-indicator {
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  animation: blink 0.5s step-end infinite;
 }
 
 /* Input Area */
 .input-area {
   padding: 16px;
   background: #000;
-  border-top: 4px solid #33ff00;
+  border-top: 4px solid #00ff00;
+  position: relative;
+  z-index: 10;
 }
 
 .input-wrapper {
   max-width: 100%;
-  position: relative;
   display: flex;
   align-items: flex-end;
-  background: #111;
-  border: 2px solid #33ff00;
+  background: #0a0a0a;
+  border: 3px solid #00ff00;
   padding: 8px;
 }
 
+.input-wrapper:focus-within {
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+}
+
 .input-prompt {
-  color: #ec4899;
-  font-size: 20px;
+  color: #ff00ff;
+  font-size: 18px;
   padding: 8px;
   font-weight: bold;
 }
@@ -788,106 +1213,96 @@ textarea {
   flex: 1;
   border: none;
   background: transparent;
-  padding: 8px 12px;
-  font-family: var(--font-body);
-  font-size: 18px;
-  color: #fff;
+  padding: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #00ff00;
   resize: none;
-  max-height: 200px;
+  max-height: 150px;
   min-height: 24px;
+  line-height: 1.4;
 }
 
-textarea:focus { outline: none; }
+textarea:focus { 
+  outline: none; 
+}
+
+textarea::placeholder { 
+  color: #004400; 
+}
 
 .send-btn {
-  background: #33ff00;
-  color: black;
-  border: none;
-  padding: 0 16px;
-  height: 36px;
-  font-family: var(--font-display);
+  background: #00ff00;
+  color: #000;
+  border: 3px solid #004400;
+  padding: 10px 16px;
+  font-family: 'Courier New', monospace;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.1s;
-  box-shadow: 4px 4px 0px #004400;
-}
-
-.send-btn:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px #004400;
-}
-
-.send-btn:active {
-  transform: translate(2px, 2px);
-  box-shadow: 0px 0px 0px transparent;
-}
-
-.send-btn:disabled {
-  background: #555;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-/* New Buttons */
-.btn {
-  padding: 8px 16px;
-  border: 2px solid black;
-  font-family: var(--font-display);
   font-weight: bold;
   cursor: pointer;
   transition: all 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
+  box-shadow: 3px 3px 0 #004400;
   text-transform: uppercase;
-  background: white;
-  color: black;
-  box-shadow: 4px 4px 0px black;
 }
 
-.btn:hover:not(:disabled) {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px black;
+.send-btn:hover:not(:disabled) {
+  background: #00ffaa;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #004400;
 }
 
-.btn:active:not(:disabled) {
+.send-btn:active:not(:disabled) {
   transform: translate(2px, 2px);
-  box-shadow: 0px 0px 0px transparent;
+  box-shadow: 0 0 0 #004400;
 }
 
-.btn:disabled {
-  background: #f3f4f6;
-  color: #9ca3af;
-  border-color: #d1d5db;
-  box-shadow: none;
+.send-btn:disabled {
+  background: #004400;
+  color: #002200;
   cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #ec4899; /* Pink */
-  color: white;
-}
-
-.btn-secondary {
-  background: #10b981; /* Green */
-  color: white;
-}
-
-.btn-outline {
-  background: transparent;
-  border: 2px dashed #9ca3af;
-  color: #6b7280;
   box-shadow: none;
 }
-.btn-outline:hover {
-  transform: none;
-  box-shadow: none;
-  border-color: black;
-  color: black;
+
+/* Blocking State */
+.blocking-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #00ff00;
 }
 
-.mr-2 { margin-right: 8px; }
-.mb-2 { margin-bottom: 8px; }
-.mb-3 { margin-bottom: 12px; }
+.blocking-state.error {
+  color: #ff0000;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #004400;
+  border-top-color: #00ff00;
+  border-radius: 0;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+.loading-spinner.large {
+  width: 60px;
+  height: 60px;
+  border-width: 6px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
 </style>

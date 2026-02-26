@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime
 
 from minio import Minio
@@ -10,12 +11,11 @@ from app.core.settings import get_settings
 
 logger = get_logger(__name__)
 
-# Markdown 记忆文件路径前缀
 MEMORY_OBJECT_PREFIX = "memories/"
 
 
 class MarkdownMemoryService:
-    """Markdown 记忆服务 - 长期记忆存储到 MinIO"""
+    """Markdown 长期记忆服务 - 仅记录摘要信息，不记录对话历史"""
 
     def __init__(self, minio_client: Minio) -> None:
         settings = get_settings()
@@ -24,11 +24,10 @@ class MarkdownMemoryService:
         self.max_memory_chars = settings.MEMORY_MAX_CHARS
 
     def _get_object_name(self, user_id: int, session_id: int) -> str:
-        """获取记忆文件的对象名（区分用户和会话）"""
         return f"{MEMORY_OBJECT_PREFIX}user_{user_id}/session_{session_id}.md"
 
     async def load_memory(self, user_id: int, session_id: int) -> str:
-        """从 MinIO 加载对话记忆"""
+        """从 MinIO 加载长期记忆"""
         object_name = self._get_object_name(user_id, session_id)
 
         try:
@@ -37,28 +36,108 @@ class MarkdownMemoryService:
             response.close()
             response.release_conn()
             logger.debug(
-                "加载对话记忆: user_id={}, session_id={}, length={}",
+                "加载长期记忆: user_id={}, session_id={}, length={}",
                 user_id,
                 session_id,
                 len(data),
             )
-            return data
+            return self._extract_memory_content(data)
         except Exception as e:
-            # 文件不存在，返回空
             logger.debug(
-                "对话记忆不存在: user_id={}, session_id={}, error={}",
+                "长期记忆不存在: user_id={}, session_id={}, error={}",
                 user_id,
                 session_id,
                 e,
             )
-            return self._create_initial_memory(user_id, session_id)
+            return ""
 
-    async def save_memory(self, user_id: int, session_id: int, content: str) -> None:
-        """保存对话记忆到 MinIO"""
+    def _extract_memory_content(self, content: str) -> str:
+        """从完整 markdown 文档中提取记忆内容（Role & Policies 之后的部分）"""
+        lines = content.split("\n")
+        result = []
+        capture = False
+
+        for line in lines:
+            if line.strip().startswith("# Role & Policies"):
+                capture = True
+            if capture:
+                result.append(line)
+
+        return "\n".join(result).strip()
+
+    async def append_summary(
+            self, user_id: int, session_id: int, user_message: str, ai_response: str
+    ) -> None:
+        """追加新对话摘要到长期记忆"""
+        current_memory = await self.load_memory(user_id, session_id)
+
+        new_summary = self._create_summary_entry(user_message, ai_response)
+
+        updated_memory = (
+            current_memory + "\n\n" + new_summary if current_memory else new_summary
+        )
+
+        # TODO: 目前的 markdown 结构中内容填写还有错误。
+        updated_memory = self._ensure_header(updated_memory)
+
+        # TODO：目前的截断策略比较简单，直接从头部开始截断；后续可以改进为更智能的方式，比如保留最近的 N 条摘要等
+        updated_memory = self._truncate_if_needed(updated_memory)
+
+        await self._save_memory(user_id, session_id, updated_memory)
+
+    def _create_summary_entry(self, user_message: str, ai_response: str) -> str:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return f"""### {timestamp}
+
+**用户**: {self._escape_markdown(user_message)}
+
+**AI摘要**: {self._escape_markdown(ai_response[:200])}..."""
+
+    def _escape_markdown(self, text: str) -> str:
+        """转义 markdown 特殊字符"""
+        if not text:
+            return ""
+        text = text.replace("```", "``````")
+        text = text.replace("#", "\\#")
+        text = text.replace("*", "\\*")
+        text = text.replace("_", "\\_")
+        text = text.replace("[", "\\[")
+        text = text.replace("]", "\\]")
+        text = text.replace("(", "\\(")
+        text = text.replace(")", "\\)")
+        return text
+
+    def _ensure_header(self, content: str) -> str:
+        """确保文档有正确的标题结构"""
+        if not content.startswith("# Role & Policies"):
+            header = """# Role & Policies
+
+你是一个专业的AI助手。
+
+# Task
+
+回答用户问题。
+
+# State
+
+暂无
+
+# Evidence
+
+暂无
+
+# Output
+
+直接输出回答内容。
+
+---
+
+"""
+            return header + content
+        return content
+
+    async def _save_memory(self, user_id: int, session_id: int, content: str) -> None:
         object_name = self._get_object_name(user_id, session_id)
-
-        # 确保内容不超过最大长度
-        content = self._truncate_if_needed(content)
 
         try:
             data = content.encode("utf-8")
@@ -72,86 +151,26 @@ class MarkdownMemoryService:
                 content_type="text/markdown",
             )
             logger.info(
-                "保存对话记忆成功: user_id={}, session_id={}, length={}",
+                "保存长期记忆成功: user_id={}, session_id={}, length={}",
                 user_id,
                 session_id,
                 len(content),
             )
         except Exception as e:
             logger.error(
-                "保存对话记忆失败: user_id={}, session_id={}, error={}",
+                "保存长期记忆失败: user_id={}, session_id={}, error={}",
                 user_id,
                 session_id,
                 e,
             )
             raise
 
-    async def append(
-        self, user_id: int, session_id: int, user_message: str, ai_response: str
-    ) -> None:
-        """追加新对话到记忆（读-改-写）"""
-        # 先加载现有记忆
-        current_memory = await self.load_memory(user_id, session_id)
-
-        # 构建新的对话片段
-        new_entry = self._format_message_pair(user_message, ai_response)
-
-        # 追加新内容
-        updated_memory = current_memory + "\n\n" + new_entry
-
-        # 保存
-        await self.save_memory(user_id, session_id, updated_memory)
-
-    def _create_initial_memory(self, user_id: int, session_id: int) -> str:
-        """创建初始记忆文件"""
-        return f"""# 对话记忆
-
-**用户 ID**: {user_id}
-**会话 ID**: {session_id}
-**创建时间**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
----
-
-## 对话记录
-
-"""
-
-    def _format_message_pair(self, user_message: str, ai_response: str) -> str:
-        """格式化一对对话为 Markdown"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return f"""### {timestamp}
-
-**用户**: {user_message}
-
-**AI**: {ai_response}"""
-
     def _truncate_if_needed(self, content: str) -> str:
         """如果内容过长，截断旧内容"""
         if len(content) <= self.max_memory_chars:
             return content
 
-        # 找到 "---" 分隔符，保留后面的内容
-        parts = content.split("---")
-        if len(parts) >= 2:
-            # 保留第一部分（头部）+ 第二部分的后半部分
-            header = parts[0] + "---"
-            body = "---".join(parts[1:])
-
-            # 递归截断 body
-            truncated_body = self._truncate_body(body)
-            return header + truncated_body
-
-        # 如果没有分隔符，直接截断
-        return content[-self.max_memory_chars :]
-
-    def _truncate_body(self, body: str) -> str:
-        """截断对话记录主体"""
-        if len(body) <= self.max_memory_chars:
-            return body
-
-        # 找到最后一个 "### " （对话分隔符）
-        # 保留最近的内容
-        lines = body.split("\n")
+        lines = content.split("\n")
         result_lines = []
         current_chars = 0
 

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
+from aio_pika.abc import AbstractRobustConnection, AbstractChannel
 from fastapi import Request, HTTPException
 from minio import Minio
 from redis.asyncio import Redis
-from aio_pika.abc import AbstractRobustConnection, AbstractChannel
 
 from app.core.app_state import get_app_state
+from app.services.vectorization import BgeM3Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 
@@ -50,7 +51,7 @@ def get_rabbitmq_connection(request: Request) -> AbstractRobustConnection:
 
 
 async def get_rabbitmq_channel(
-    request: Request,
+        request: Request,
 ) -> AsyncGenerator[AbstractChannel, None]:
     """获取 RabbitMQ Channel（依赖注入）。
 
@@ -76,3 +77,14 @@ def get_milvus(request: Request) -> MilvusVectorStore:
     if milvus is None:
         raise HTTPException(status_code=503, detail="Milvus 客户端未初始化")
     return milvus
+
+
+def get_embedder(request: Request) -> BgeM3Embedder:
+    """获取 Embedder（依赖注入）。"""
+
+    state = get_app_state(request.app)
+    infra = state.infra
+    embedder = getattr(infra, "embedder", None) if infra else None
+    if embedder is None:
+        raise HTTPException(status_code=503, detail="Embedder 未初始化")
+    return embedder

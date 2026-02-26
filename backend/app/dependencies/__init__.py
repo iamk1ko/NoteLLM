@@ -23,6 +23,9 @@ __all__ = [
     "get_rabbitmq_connection",
     "get_rabbitmq_channel",
     "get_milvus",
+    "get_llm_service",
+    "get_redis_chat_memory",
+    "get_markdown_memory",
 ]
 
 _LAZY_IMPORTS: dict[str, str] = {
@@ -37,6 +40,10 @@ _LAZY_IMPORTS: dict[str, str] = {
     "get_rabbitmq_connection": "app.dependencies.infra:get_rabbitmq_connection",
     "get_rabbitmq_channel": "app.dependencies.infra:get_rabbitmq_channel",
     "get_milvus": "app.dependencies.infra:get_milvus",
+    # llm & memory
+    "get_llm_service": "app.dependencies.llm:get_llm_service",
+    "get_redis_chat_memory": "app.dependencies.memory:get_redis_chat_memory",
+    "get_markdown_memory": "app.dependencies.memory:get_markdown_memory",
 }
 
 
@@ -70,3 +77,5 @@ if TYPE_CHECKING:
         get_rabbitmq_channel,
         get_milvus,
     )
+    from app.dependencies.llm import get_llm_service
+    from app.dependencies.memory import get_redis_chat_memory, get_markdown_memory

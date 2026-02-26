@@ -47,6 +47,7 @@ class AppState:
     """
 
     infra: InfraProvider | None = None
+    milvus: Any = None  # 兼容：也支持直接挂载
 
 
 def get_app_state(app: FastAPI) -> AppState:

@@ -80,8 +80,11 @@ def test_connect_blsc_chat_completion_by_langchain():
     if not api_key or not base_url:
         pytest.skip("BLSC_API_KEY/BLSC_BASE_URL not set")
 
+    print(api_key, base_url)
+
     from langchain_openai import ChatOpenAI
     from langchain_core.messages.ai import AIMessage
+    from langchain.agents import create_agent
 
     llm = ChatOpenAI(
         api_key=api_key,
@@ -95,3 +98,12 @@ def test_connect_blsc_chat_completion_by_langchain():
     assert response is not None
     content = (response.content or "").strip()
     print(content)
+
+    agent = create_agent(llm)
+
+    input_message = {"role": "user", "content": "写一段500字的作文，题目是《我的一天》"}
+    for step in agent.stream(
+            {"messages": [input_message]},
+            stream_mode="values",
+    ):
+        step["messages"][-1].pretty_print()

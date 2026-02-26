@@ -303,7 +303,7 @@ async def lifespan(app: FastAPI):
 3. 确认向量库写入模式（批量大小、失败重试策略）
 4. 补充任务状态/游标存储方案（使用Redis）
 5. 定义向量化任务消息体与状态流转规则
-6. 在 docs/pai_school_ddl.sql 中添加 rag_chunks 表的DDL语句
+6. 在 docs/NoteLLM_DDL.sql 中添加 rag_chunks 表的DDL语句
 
 [文件向量化业务]
 针对文件中用户上传文件向量化流程的未实现问题，设计并优化一套完整的业务处理流程，具体要求如下：
@@ -593,4 +593,60 @@ DELETE /files/{file_id} 增强为：
 除此之外还可以设计哪些有趣的功能？
 
 
+[代码出错了]
+我调试后发现是因为在 chat_message_service.send_message_stream 中调用了一个依赖注入的对象，但这个对象没有正确初始化，导致在访问它的 get 方法时抛出了 AttributeError。
+具体位置在 chat_message_service.send_message_stream 的async def _generate_ai_response_stream() 函数中。
+当调用函数 "await redis_memory.load_from_mysql(self.db)" 时，
+    async def load_from_mysql(self, db: AsyncSession) -> None:
+        """从 MySQL 加载完整历史到 Redis（仅首次加载）"""
+        # 检查是否已加载
+        cached = await self.redis.get(self._cache_flag_key)
 
+这里的get方法报错了。
+
+错误日志：
+2026-02-26 17:54:49 | MainProcess | asyncio-portal-1b9aaaf6780 | chat_message_service.send_message_stream:125 | ERROR: LLM 流式响应失败: session_id=35, error='Depends' object has no attribute 'get'
+
+[聊天对话业务问题]
+RAG检索模块：
+    代码位置: backend/app/services/rag
+    核心模块包含：
+        - cache.py: 负责RAG检索的缓存管理，使用Redis存储和查询检索结果，提升检索效率。
+        - memory.py: 负责RAG检索的内存管理，定义了基于Redis的内存实现类，用于存储和加载对话历史等信息。
+        - reranker.py: 负责RAG检索的重排序功能，定义了基于向量相似度的重排序器，用于对检索结果进行排序优化。
+        - retriever.py: 负责RAG检索的检索功能，定义了基于Milvus向量数据库的检索器，用于执行语义检索。
+        - schemas.py: 定义了RAG检索相关的数据模型和接口规范，确保模块间数据交互的一致性和规范性。
+        - services.py: 负责RAG检索的核心服务逻辑，协调cache、memory、reranker和retriever等模块实现完整的RAG检索流程。
+LLM记忆模块:
+    代码位置: backend/app/services/memory
+    核心模块包含：
+        - markdown_memory.py：定义了基于Markdown格式的记忆实现类，用于将对话历史以Markdown格式存储和展示。
+        - redis_memory.py：定义了基于Redis的记忆实现类，用于将对话历史存储在Redis中，并提供加载和查询功能。
+向量化模块:
+    代码位置: backend/app/services/vectorization
+    核心模块包含：
+        - document_parser.py：负责文档解析功能，使用unstructured库实现对不同格式文件的解析功能。
+        - file_reader.py：负责文件读取功能，负责从MinIO获取文件的临时URL，并实现流式读取功能。
+        - text_chunker.py：负责文本分块功能，使用unstructured库实现文本的分块功能，支持自定义分块大小和重叠度。
+        - vector_store.py：负责向量存储功能，负责将生成的向量数据写入Milvus数据库，并实现连接管理和索引优化等功能。
+        - embedder.py: 负责嵌入生成器功能，定义了基于BGE-M3模型的嵌入生成器类，用于将文本转换为向量表示。
+        - vector_store.py: 负责向量存储功能，定义了基于Milvus的向量存储类，用于将生成的向量数据写入Milvus数据库，并实现连接管理和索引优化等功能。
+
+目前问题：
+    我自己发现的:
+        - 上面提到的3个模块当中，我发现了很多模块职责不清晰（部分功能重复实现了，且具体实现逻辑还不一样）、代码耦合度高、日志缺乏关键信息等问题。
+        - 当我在 chat_message_service.send_message_stream 实现与LLM聊天功能时，我发现了好多地方的依赖注入混乱，
+        可能存在循环依赖，以及部分依赖对象没有正确初始化，部分对象又重复进行了初始化，导致在代码运行时抛出了很多错误。
+
+我的聊天对话业务设计想法是：
+    - 用户输入查询后，系统会将用户输入进行向量化表示（调用BGE-M3）.
+    - 进行混合检索（BM25关键词检索以及向量的语义检索，从 Milvus 中获取相关文档的向量表示）
+    - 将检索到的向量数据和关键词候选数据集合并，进行去重和排序，选取最相关（top-k）的文档内容.
+    - 将选取的文档内容作为上下文，结合用户输入的查询，调用LLM生成最终答案返回给用户。
+    - 且还需要实现LLM长期记忆（即模型上下文管理），记忆形式以markdown文档存放于minio中（注意minio存放的记忆要能够区分出不同用户、不同聊天会话，避免记忆混淆了）。
+    - 聊天记录（比如用户和模型的对话记录）长期持久化在mysql中，且需要能够关联到具体的用户和聊天会话，方便后续查询和分析。
+    - redis 用于存储用户的短期记忆（比如当前会话的20条上下文信息，涉及频繁地读和写。以滑动窗口的形式实现），以及一些需要快速访问的数据（比如用户的会话状态）。
+    - milvus 用于存储用户上传文件的向量化数据，支持后续的语义检索功能。
+
+
+我需要你帮我梳理一下目前这三个模块的代码结构和业务流程，指出其中存在的设计问题和潜在风险点，并给出具体的优化建议和改进方案，确保系统能够高效、安全、稳定地处理用户的检索和聊天需求。

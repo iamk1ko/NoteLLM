@@ -38,7 +38,12 @@ from app.core.logging import get_logger
 from app.services.file_cleanup_service import FileCleanupService
 from app.schemas.response import ApiResponse
 from app.services import FileStorageService, MilvusVectorStore
-from app.crud import FileStorageCRUD, ChatSessionFileCRUD, ChatSessionCRUD
+from app.crud import (
+    FileStorageCRUD,
+    ChatSessionFileCRUD,
+    ChatSessionCRUD,
+    ChatMessageCRUD,
+)
 from app.models import User, FileStorageStatus
 from app.services.vectorization.vector_store import MilvusVectorStore
 from aio_pika.abc import AbstractChannel
@@ -511,16 +516,29 @@ async def delete_file(
 
     # 删除相关的聊天会话
     try:
-        # 获取使用该文件的所有会话ID
+        # 1. 获取使用该文件的所有会话ID（通过 chat_session_files 关联表）
         session_ids = await ChatSessionFileCRUD.get_file_session_ids_async(db, file_id)
-        if session_ids:
-            # 删除每个会话
-            for session_id in session_ids:
+
+        # 2. 获取通过 context_id 关联到该文件的会话
+        context_sessions = await ChatSessionCRUD.get_sessions_by_context_id_async(
+            db, str(file_id), file_obj.user_id
+        )
+        context_session_ids = [s.id for s in context_sessions]
+
+        # 合并去重
+        all_session_ids = list(set(session_ids) | set(context_session_ids))
+
+        if all_session_ids:
+            # 先删除每个会话中的消息，再删除会话
+            for session_id in all_session_ids:
+                await ChatMessageCRUD.delete_session_messages_async(db, session_id)
                 await ChatSessionCRUD.delete_session_async(db, session_id)
             logger.info(
-                "文件关联的会话已删除：file_id={}, session_count={}",
+                "文件关联的会话及消息已删除：file_id={}, session_count={} (files表: {}, context_id: {})",
                 file_id,
+                len(all_session_ids),
                 len(session_ids),
+                len(context_session_ids),
             )
     except Exception as e:
         # 记录错误但不阻塞文件删除
@@ -555,27 +573,108 @@ async def re_vectorize_file(
     - 返回文件当前状态
     """
 
+    result = await _retry_vectorize(
+        file_id=file_id,
+        db=db,
+        current_user=current_user,
+        rabbit_channel=rabbit_channel,
+    )
+    return ApiResponse.ok(result)
+
+
+@router.get("/files/{file_id}/status", response_model=ApiResponse[dict])
+async def get_file_status(
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """获取文件状态与上传进度。"""
+
+    file_obj = await FileStorageCRUD.get_user_file_async(db, file_id, current_user.id)
+    if not file_obj:
+        raise HTTPException(status_code=404, detail="文件不存在或无权限")
+
+    progress = None
+    if file_obj.status == FileStorageStatus.UPLOADING.value and file_obj.etag:
+        try:
+            from app.core.redis_client import get_redis_client
+
+            redis_client = cast(Any, get_redis_client())
+            bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(
+                current_user.id, file_obj.etag
+            )
+            meta_key = RedisKey.FILE_STORAGE_METADATA.format(
+                current_user.id, file_obj.etag
+            )
+            uploaded = await redis_client.bitcount(bitmap_key)
+            total_chunks = await redis_client.hget(meta_key, "total_chunks")
+            try:
+                total_chunks_int = (
+                    int(total_chunks) if total_chunks is not None else None
+                )
+            except (TypeError, ValueError):
+                total_chunks_int = None
+            if total_chunks_int is not None:
+                progress = {
+                    "uploaded_chunks": int(uploaded or 0),
+                    "total_chunks": total_chunks_int,
+                }
+        except Exception:
+            progress = None
+
+    return ApiResponse.ok(
+        {
+            "file_id": file_obj.id,
+            "status": file_obj.status,
+            "upload_time": file_obj.upload_time,
+            "update_time": file_obj.update_time,
+            "progress": progress,
+        }
+    )
+
+
+@router.post("/files/{file_id}/retry", response_model=ApiResponse[dict])
+async def retry_vectorize_file(
+    file_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+) -> ApiResponse[dict]:
+    """重试向量化（失败状态专用）。"""
+
+    result = await _retry_vectorize(
+        file_id=file_id,
+        db=db,
+        current_user=current_user,
+        rabbit_channel=rabbit_channel,
+    )
+    return ApiResponse.ok(result)
+
+
+async def _retry_vectorize(
+    *,
+    file_id: int,
+    db: AsyncSession,
+    current_user: User,
+    rabbit_channel: AbstractChannel,
+) -> dict:
     file_obj = await FileStorageCRUD.get_file_by_id_async(db, file_id)
     if not file_obj:
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    # 权限控制
     if current_user.role != "admin" and file_obj.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作该文件")
 
-    # 状态检查：只有 FAILED 状态可以重试
     if file_obj.status != FileStorageStatus.FAILED.value:
         raise HTTPException(
             status_code=400,
             detail=f"只有失败状态的文件可以重新向量化，当前状态: {file_obj.status}",
         )
 
-    # 重置状态为 UPLOADED (1)，以便触发向量化
     await FileStorageCRUD.update_file_status_async(
         db, file_id=file_obj.id, status=FileStorageStatus.UPLOADED.value
     )
 
-    # 发布向量任务到队列
     try:
         await rabbit_channel.default_exchange.publish(
             Message(
@@ -598,4 +697,4 @@ async def re_vectorize_file(
         logger.error("发布向量任务失败：file_id={}, error={}", file_id, e)
         raise HTTPException(status_code=500, detail="发布向量任务失败")
 
-    return ApiResponse.ok({"success": True, "message": "向量化任务已重新发布"})
+    return {"success": True, "message": "向量化任务已重新发布"}

@@ -130,7 +130,7 @@ class ChatMessageCRUD:
         await db.commit()
         await db.refresh(message)
 
-        logger.info(
+        logger.debug(
             "异步创建聊天消息：message_id={}, session_id={}, user_id={}, role={}",
             message.id,
             session_id,

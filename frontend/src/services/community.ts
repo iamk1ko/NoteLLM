@@ -34,20 +34,20 @@ export interface ShareListParams {
 export const communityService = {
   // Get list of shared items
   getShares: async (params: ShareListParams = {}) => {
-    const { data } = await http.get<ApiResponse<{ items: CommunityShare[]; total: number }>>("/community/shares", { params });
+    const { data } = await http.get<ApiResponse<{ items: CommunityShare[]; total: number }>>("/shares", { params });
     return data.data;
   },
 
   // Publish a share
   publishShare: async (payload: PublishSharePayload) => {
-    const { data } = await http.post<ApiResponse<{ share_id: number; publish_time: string }>>("/community/shares", payload);
+    const { data } = await http.post<ApiResponse<{ share_id: number; publish_time: string }>>("/shares", payload);
     return data.data;
   },
 
   // Fork a share
   forkShare: async (shareId: number) => {
     const { data } = await http.post<ApiResponse<{ new_file_id: number; new_session_id: number }>>(
-      `/community/shares/${shareId}/fork`
+      `/shares/${shareId}/fork`
     );
     return data.data;
   },
@@ -55,7 +55,7 @@ export const communityService = {
   // Like/Unlike
   likeShare: async (shareId: number, action: "like" | "unlike") => {
     const { data } = await http.post<ApiResponse<{ success: boolean; like_count: number }>>(
-      `/community/shares/${shareId}/like`, 
+      `/shares/${shareId}/like`, 
       { action }
     );
     return data.data;

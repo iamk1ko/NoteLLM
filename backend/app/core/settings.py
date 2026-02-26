@@ -64,6 +64,12 @@ class Settings(BaseSettings):
 
     BLSC_API_KEY: str | None = None
     BLSC_BASE_URL: str | None = None
+    LLM_MODEL: str = "DeepSeek-V3.2"
+    LLM_TEMPERATURE: float = 0.7
+    LLM_MAX_TOKENS: int = 2048
+
+    # Chat Memory - MinIO Bucket
+    MEMORY_BUCKET: str = "chat-memories"
 
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
@@ -106,6 +112,13 @@ class Settings(BaseSettings):
     RAG_HISTORY_LIMIT: int = 8
     RAG_CACHE_TTL: int = 300
     RAG_RANKER_ALPHA: float = 0.7
+    RAG_TOP_K: int = 3
+
+    # Chat Memory Config
+    # Redis 短期记忆 - 滑动窗口大小
+    REDIS_MEMORY_LIMIT: int = 20
+    # Markdown 长期记忆 - 最大字符数
+    MEMORY_MAX_CHARS: int = 12000
 
     # Milvus
     # 兼容两种配置方式：

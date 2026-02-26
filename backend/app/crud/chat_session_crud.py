@@ -49,11 +49,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     def create_session(
-            db: Session,
-            user_id: int,
-            title: str | None = None,
-            biz_type: str = "ai_chat",
-            context_id: str | None = None,
+        db: Session,
+        user_id: int,
+        title: str | None = None,
+        biz_type: str = "ai_chat",
+        context_id: str | None = None,
     ) -> ChatSession:
         """创建新的聊天会话。
 
@@ -95,11 +95,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def create_session_async(
-            db: AsyncSession,
-            user_id: int,
-            title: str | None = None,
-            biz_type: str = "ai_chat",
-            context_id: str | None = None,
+        db: AsyncSession,
+        user_id: int,
+        title: str | None = None,
+        biz_type: str = "ai_chat",
+        context_id: str | None = None,
     ) -> ChatSession:
         """创建新的聊天会话（异步版）。"""
 
@@ -126,11 +126,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     def get_user_sessions(
-            db: Session,
-            user_id: int,
-            page: int = 1,
-            size: int = 10,
-            biz_type: str | None = None,
+        db: Session,
+        user_id: int,
+        page: int = 1,
+        size: int = 10,
+        biz_type: str | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询用户的聊天会话列表（分页）。
 
@@ -185,11 +185,11 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def get_user_sessions_async(
-            db: AsyncSession,
-            user_id: int,
-            page: int = 1,
-            size: int = 10,
-            biz_type: str | None = None,
+        db: AsyncSession,
+        user_id: int,
+        page: int = 1,
+        size: int = 10,
+        biz_type: str | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询用户的聊天会话列表（分页，异步版）。"""
 
@@ -229,10 +229,10 @@ class ChatSessionCRUD:
 
     @staticmethod
     def get_all_sessions(
-            db: Session,
-            page: int = 1,
-            size: int = 10,
-            biz_type: str | None = None,
+        db: Session,
+        page: int = 1,
+        size: int = 10,
+        biz_type: str | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询所有会话（管理员使用，分页）。
 
@@ -257,10 +257,10 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def get_all_sessions_async(
-            db: AsyncSession,
-            page: int = 1,
-            size: int = 10,
-            biz_type: str | None = None,
+        db: AsyncSession,
+        page: int = 1,
+        size: int = 10,
+        biz_type: str | None = None,
     ) -> tuple[Sequence[ChatSession], int]:
         """查询所有会话（管理员使用，分页，异步版）。"""
 
@@ -300,14 +300,14 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def get_session_by_id_async(
-            db: AsyncSession, session_id: int
+        db: AsyncSession, session_id: int
     ) -> ChatSession | None:
         """根据 ID 获取聊天会话（异步版）。"""
         return await db.get(ChatSession, session_id)
 
     @staticmethod
     def get_user_session(
-            db: Session, session_id: int, user_id: int
+        db: Session, session_id: int, user_id: int
     ) -> ChatSession | None:
         """获取用户的聊天会话（带权限检查）。
 
@@ -334,7 +334,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def get_user_session_async(
-            db: AsyncSession, session_id: int, user_id: int
+        db: AsyncSession, session_id: int, user_id: int
     ) -> ChatSession | None:
         """获取用户的聊天会话（带权限检查，异步版）。"""
 
@@ -348,7 +348,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def update_session(
-            db: Session, session_id: int, update_data: dict[str, Any]
+        db: Session, session_id: int, update_data: dict[str, Any]
     ) -> ChatSession | None:
         """更新聊天会话信息。
 
@@ -385,7 +385,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def update_session_async(
-            db: AsyncSession, session_id: int, update_data: dict[str, Any]
+        db: AsyncSession, session_id: int, update_data: dict[str, Any]
     ) -> ChatSession | None:
         """更新聊天会话信息（异步版）。"""
 
@@ -424,8 +424,42 @@ class ChatSessionCRUD:
         return True
 
     @staticmethod
+    async def get_sessions_by_context_id_async(
+        db: AsyncSession, context_id: str, user_id: int
+    ) -> Sequence[ChatSession]:
+        """异步获取指定 context_id 的所有会话（通常用于文件删除时清理关联会话）。
+
+        参数说明：
+        - db: 数据库会话
+        - context_id: 外部上下文 ID（如文件 ID）
+        - user_id: 用户 ID
+
+        返回值：
+        - Sequence[ChatSession]: 会话列表
+        """
+        result = await db.scalars(
+            select(ChatSession).where(
+                and_(
+                    ChatSession.context_id == context_id,
+                    ChatSession.user_id == user_id,
+                    ChatSession.status == 1,
+                )
+            )
+        )
+        sessions = result.all()
+
+        logger.debug(
+            "通过 context_id 查询会话：context_id={}, user_id={}, count={}",
+            context_id,
+            user_id,
+            len(sessions),
+        )
+
+        return sessions
+
+    @staticmethod
     def get_session_with_file_count(
-            db: Session, session_id: int
+        db: Session, session_id: int
     ) -> tuple[ChatSession | None, int]:
         """获取会话详情（包含关联文件数量）。
 
@@ -449,23 +483,25 @@ class ChatSessionCRUD:
 
         # 统计关联文件数量
         file_count = (
-                db.scalar(
-                    select(func.count(ChatSessionFile.id)).where(
-                        ChatSessionFile.chat_session_id == session_id
-                    )
+            db.scalar(
+                select(func.count(ChatSessionFile.id)).where(
+                    ChatSessionFile.chat_session_id == session_id
                 )
-                or 0
+            )
+            or 0
         )
 
         return session, file_count
 
     @staticmethod
     async def get_session_with_file_count_async(
-            db: AsyncSession, session_id: int
+        db: AsyncSession, session_id: int
     ) -> tuple[ChatSession | None, int]:
         """获取会话详情（包含关联文件数量，异步版）。"""
 
-        result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
+        result = await db.execute(
+            select(ChatSession).where(ChatSession.id == session_id)
+        )
         session = result.scalar_one_or_none()
 
         if not session:
@@ -481,7 +517,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def link_file_to_session(
-            db: Session, session_id: int, file_id: int
+        db: Session, session_id: int, file_id: int
     ) -> ChatSessionFile | None:
         """关联文件到会话。
 
@@ -526,7 +562,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def link_file_to_session_async(
-            db: AsyncSession, session_id: int, file_id: int
+        db: AsyncSession, session_id: int, file_id: int
     ) -> ChatSessionFile | None:
         """关联文件到会话（异步版）。"""
 
@@ -597,7 +633,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def unlink_file_from_session_async(
-            db: AsyncSession, session_id: int, file_id: int
+        db: AsyncSession, session_id: int, file_id: int
     ) -> bool:
         """取消文件与会话的关联（异步版）。"""
 
@@ -642,7 +678,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def link_files_to_session_async(
-            db: AsyncSession, session_id: int, file_ids: list[int]
+        db: AsyncSession, session_id: int, file_ids: list[int]
     ) -> int:
         """批量关联文件到会话（异步版）。"""
 
@@ -657,7 +693,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     def unlink_files_from_session(
-            db: Session, session_id: int, file_ids: list[int]
+        db: Session, session_id: int, file_ids: list[int]
     ) -> int:
         """批量取消文件与会话的关联。
 
@@ -673,14 +709,14 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def unlink_files_from_session_async(
-            db: AsyncSession, session_id: int, file_ids: list[int]
+        db: AsyncSession, session_id: int, file_ids: list[int]
     ) -> int:
         """批量取消文件与会话的关联（异步版）。"""
 
         success = 0
         for file_id in file_ids:
             if await ChatSessionCRUD.unlink_file_from_session_async(
-                    db, session_id, file_id
+                db, session_id, file_id
             ):
                 success += 1
         return success
@@ -711,7 +747,9 @@ class ChatSessionCRUD:
         return list(file_ids)
 
     @staticmethod
-    async def get_session_file_ids_async(db: AsyncSession, session_id: int) -> list[int]:
+    async def get_session_file_ids_async(
+        db: AsyncSession, session_id: int
+    ) -> list[int]:
         """获取会话关联的所有文件 ID（异步版）。"""
 
         result = await db.execute(
@@ -725,7 +763,7 @@ class ChatSessionCRUD:
 
     @staticmethod
     async def get_session_files_async(
-            db: AsyncSession, session_id: int
+        db: AsyncSession, session_id: int
     ) -> Sequence[FileStorage]:
         """获取会话关联的所有文件详情（异步版）。"""
 

@@ -6,6 +6,7 @@ from redis.asyncio import Redis
 
 from app.core.db import get_async_db
 from app.dependencies.infra import get_redis, get_milvus
+from app.services import MilvusVectorStore
 from app.services.rag.service import RagService
 from app.services.vectorization.embedder import BgeM3Embedder
 from app.core.settings import get_settings

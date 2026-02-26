@@ -14,6 +14,10 @@ class RedisKey(str, Enum):
     FILE_VECTORIZATION_TASK_UPDATED_AT = "vector:task:updated_at:{}"
     FILE_VECTORIZATION_TASK_CURSOR = "vector:cursor:{}"
     USER_SESSION = "auth:session:{}"
+    # Chat Memory - 短期记忆 (Redis List，滑动窗口)
+    CHAT_SESSION_MESSAGES = "chat:session:{}:messages"
+    # Chat Memory - 缓存标记 (用于标记该会话是否已加载过完整历史)
+    CHAT_SESSION_CACHE_FLAG = "chat:session:{}:cached"
 
 
 @unique

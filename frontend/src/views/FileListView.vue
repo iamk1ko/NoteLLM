@@ -12,7 +12,7 @@
             class="search-input"
           />
         </div>
-        <button class="pixel-btn" @click="goUpload">
+        <button class="pixel-btn" @click="openUploadModal">
           <span class="icon">+</span>
           上传新文件
         </button>
@@ -21,7 +21,7 @@
 
     <div class="grid-cards fade-in">
       <!-- Upload Card -->
-      <div class="upload-card card" @click="goUpload">
+      <div class="upload-card card" @click="openUploadModal">
         <div class="upload-content">
           <div class="upload-icon-box">
             <span class="pixel-icon">+</span>
@@ -36,9 +36,10 @@
         v-for="file in filteredFiles" 
         :key="file.id" 
         :file="file"
-        @click="goChat(file.id)"
+        @click="goChat(file)"
         @preview="handlePreview"
         @delete="confirmDelete"
+        @revectorize="handleReVectorize"
       />
     </div>
 
@@ -63,6 +64,13 @@
       :content-type="previewData.contentType"
       @close="closePreview"
     />
+    
+    <!-- Upload Modal -->
+    <FileUploadModal
+      v-if="showUpload"
+      @close="showUpload = false"
+      @upload-success="handleUploadSuccess"
+    />
   </div>
 </template>
 
@@ -70,9 +78,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
-import { deleteFile, getFilePreview } from '@/services/files';
+import { deleteFile, getFilePreview, reVectorizeFile } from '@/services/files';
 import FileCard from '@/components/FileCard.vue';
 import FilePreviewModal from '@/components/FilePreviewModal.vue';
+import FileUploadModal from '@/components/FileUploadModal.vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { FileItem } from '@/services/types';
 
@@ -87,8 +96,10 @@ const router = useRouter();
 const filesStore = useFilesStore();
 const keyword = ref(''); // 搜索关键词
 
-// Preview State
+// Preview & Upload State
 const showPreview = ref(false);
+const showUpload = ref(false); // Modal visibility
+
 const previewData = ref({
   url: '',
   fileName: '',
@@ -106,8 +117,44 @@ const filteredFiles = computed(() => {
 });
 
 // 跳转
-const goUpload = () => router.push('/upload');
-const goChat = (id: string) => router.push(`/chat/${id}`);
+const openUploadModal = () => {
+  showUpload.value = true;
+};
+
+const goChat = (file: FileItem) => {
+  // 检查文件状态：只有就绪状态(2)才允许进入聊天
+  if (file.status === 1) {
+    ElMessage.warning('文件正在向量化中，请稍后再试');
+    return;
+  }
+  if (file.status === 3) {
+    ElMessage.warning('文件向量化失败，请重新向量化后再试');
+    return;
+  }
+  router.push(`/chat/${file.id}`);
+};
+
+const handleReVectorize = async (id: string) => {
+  try {
+    await ElMessageBox.confirm('确定要重新向量化此文件吗？', '重新向量化', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'info',
+    });
+    
+    await reVectorizeFile(id);
+    ElMessage.success('已重新触发向量化任务');
+    filesStore.loadFiles(); // 刷新列表
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.response?.data?.detail || '重新向量化失败');
+    }
+  }
+};
+
+const handleUploadSuccess = () => {
+  filesStore.loadFiles(); // Refresh list
+};
 
 /**
  * 预览文件 (Preview File)

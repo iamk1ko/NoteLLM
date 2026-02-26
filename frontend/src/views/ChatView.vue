@@ -21,11 +21,15 @@
         <div class="notebook-card">
           <div class="notebook-hole-punch"></div>
           <div class="notebook-hole-punch right"></div>
-          <h2 class="file-name-lg">{{ detail.filename }}</h2>
+          <!-- 文件信息展示 -->
+          <h2 class="file-name-lg">{{ detail.filename || '未知文件' }}</h2>
           <p class="file-meta-lg">{{ formatSize(detail.file_size) }}</p>
+          <!-- 状态标签 -->
           <span class="pill pill--success" v-if="detail.status === 2">就绪</span>
           <span class="pill pill--warning" v-if="detail.status === 1">向量化中...</span>
           <span class="pill pill--failed" v-if="detail.status === 3">失败</span>
+          <!-- 上传时间 -->
+          <p class="upload-time">上传时间: {{ formatTime(detail.upload_time) }}</p>
         </div>
 
         <div class="sidebar-section">
@@ -89,10 +93,29 @@
           <h2 class="header-title">终端 TERMINAL://{{ detail?.filename || '加载中...' }}</h2>
           <span class="status-cursor">_</span>
         </div>
+        <!-- Status Indicator in Chat Header -->
+        <div class="status-indicator" v-if="detail">
+          <span v-if="detail.status === 2" class="status-ready">[READY]</span>
+          <span v-else-if="detail.status === 1" class="status-busy">[VECTORIZING: {{ (vectorProgress || 0).toFixed(0) }}%]</span>
+          <span v-else-if="detail.status === 3" class="status-error">[FAILED]</span>
+        </div>
       </div>
 
       <div class="messages-container" ref="messagesRef">
-        <div v-if="records.length === 0" class="empty-chat">
+        <!-- Vectorizing Blocking State -->
+        <div v-if="detail?.status === 1" class="blocking-state">
+           <div class="loading-spinner large"></div>
+           <h2>SYSTEM INITIALIZING...</h2>
+           <p>正在构建向量索引，请稍候...</p>
+        </div>
+
+        <div v-else-if="detail?.status === 3" class="blocking-state error">
+           <div class="error-icon">!</div>
+           <h2>SYSTEM ERROR</h2>
+           <p>文件处理失败，无法进行对话。</p>
+        </div>
+
+        <div v-else-if="records.length === 0" class="empty-chat">
           <div class="empty-icon">👾</div>
           <h3>系统就绪 SYSTEM READY</h3>
           <p>等待指令 AWAITING INPUT...</p>
@@ -166,15 +189,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { useQaStore } from '@/store/qa';
-import { formatSize } from '@/utils/format';
+import { formatSize, formatTime } from '@/utils/format';
 import { communityService } from '@/services/community';
 import { getFilePreview } from '@/services/files';
+import { sendMessageStream } from '@/services/qa';
 import FilePreviewModal from '@/components/FilePreviewModal.vue';
 import { ElMessage } from 'element-plus';
+import type { MessageItem } from '@/services/types';
 
 /**
  * ChatView Component
@@ -194,6 +219,8 @@ const messagesRef = ref<HTMLElement | null>(null); // 消息列表容器引用�
 const inputRef = ref<HTMLTextAreaElement | null>(null); // 输入框引用，用于自动调整高度
 const isSidebarCollapsed = ref(false); // 侧边栏折叠状态
 const generatingSummary = ref(false); // Add generating summary state
+const vectorProgress = ref(0); // Vectorization progress (simulated or real)
+let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
 // Preview State
 const showPreview = ref(false);
@@ -271,7 +298,7 @@ const shareSession = async () => {
     });
     
     alert("发布成功！您的分享已发布到社区广场。");
-    router.push('/community');
+    await router.push('/community');
   } catch (error) {
     console.error("Failed to share", error);
     alert("发布失败");
@@ -292,7 +319,7 @@ const scrollToBottom = () => {
 
 /**
  * 提交问题
- * 触发后端QA接口，并自动调整输入框高度
+ * 使用流式输出 (SSE)
  */
 const submitQuestion = async () => {
   if (!question.value.trim() || loading.value) return;
@@ -303,11 +330,119 @@ const submitQuestion = async () => {
   // 重置输入框高度为单行
   if (inputRef.value) inputRef.value.style.height = 'auto';
 
-  // Use detail.id as context (fileId)
-  await qaStore.sendQuestion(q, String(detail.value?.id));
+  // 如果没有 session，先创建
+  if (!qaStore.sessionId && detail.value?.id) {
+    await qaStore.loadHistory(String(detail.value.id));
+  }
+  
+  if (!qaStore.sessionId) {
+    ElMessage.error('会话初始化失败');
+    return;
+  }
+
+  // 添加用户消息到列表
+  const userMsg: MessageItem = {
+    id: Date.now(),
+    session_id: qaStore.sessionId,
+    user_id: 0,
+    role: 'user',
+    content: q,
+    create_time: new Date().toISOString(),
+  };
+  qaStore.records.push(userMsg);
+  
+  // 创建空的 AI 消息占位
+  const aiMsg: MessageItem = {
+    id: Date.now() + 1,
+    session_id: qaStore.sessionId,
+    user_id: 0,
+    role: 'assistant',
+    content: '',
+    create_time: new Date().toISOString(),
+  };
+  qaStore.records.push(aiMsg);
+  
+  // 设置加载状态
+  qaStore.loading = true;
+  
+  // 流式接收 AI 响应
+  try {
+    await sendMessageStream(
+      qaStore.sessionId,
+      q,
+      (chunk) => {
+        // 追加内容到 AI 消息
+        aiMsg.content += chunk;
+        scrollToBottom();
+      },
+      () => {
+        // 流式完成
+        qaStore.loading = false;
+        ElMessage.success('回答完成');
+      },
+      (error) => {
+        // 错误处理
+        qaStore.loading = false;
+        aiMsg.content += '\n\n[Error: ' + error + ']';
+        ElMessage.error('回答生成失败: ' + error);
+      }
+    );
+  } catch (error) {
+    qaStore.loading = false;
+    console.error('Send message error:', error);
+    ElMessage.error('发送消息失败');
+  }
+};
+
+// --- Polling Logic ---
+const startPolling = () => {
+  if (pollingTimer) return;
+  
+  // Initial progress
+  vectorProgress.value = 0;
+  
+  pollingTimer = setInterval(async () => {
+    // Simulate progress while waiting for status update
+    if (vectorProgress.value < 90) {
+      vectorProgress.value += (100 - vectorProgress.value) * 0.1;
+    }
+    
+    if (detail.value?.id) {
+      // Use refreshDetail (silent update) instead of loadDetail
+      // Check if refreshDetail exists on store (it was added in files.ts)
+      if (typeof filesStore.refreshDetail === 'function') {
+        await filesStore.refreshDetail(detail.value.id);
+      } else {
+        // Fallback if refreshDetail is not available (though we just added it)
+        console.warn("refreshDetail not found on filesStore");
+      }
+      
+      // Check status
+      if (detail.value?.status === 2 || detail.value?.status === 3) {
+        vectorProgress.value = 100;
+        stopPolling();
+      }
+    }
+  }, 2000); // Poll every 2 seconds
+};
+
+const stopPolling = () => {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
 };
 
 // --- Watchers ---
+
+// Monitor file status to start/stop polling
+watch(() => detail.value?.status, (newStatus) => {
+  if (newStatus === 1) { // Vectorizing
+    startPolling();
+  } else if (newStatus === 2 || newStatus === 3) { // Ready or Failed
+    stopPolling();
+  }
+}, { immediate: true });
 
 // 监听输入内容，自动调整 Textarea 高度
 watch(question, () => {
@@ -330,7 +465,16 @@ onMounted(async () => {
     await filesStore.loadDetail(id);
     await qaStore.loadHistory(id);
     scrollToBottom();
+    
+    // Check initial status for polling
+    if (detail.value?.status === 1) {
+      startPolling();
+    }
   }
+});
+
+onUnmounted(() => {
+  stopPolling();
 });
 </script>
 
@@ -437,6 +581,13 @@ onMounted(async () => {
   font-size: 14px;
   color: #555;
   margin-bottom: 12px;
+  font-family: var(--font-body);
+}
+
+.upload-time {
+  font-size: 12px;
+  color: #888;
+  margin-top: 8px;
   font-family: var(--font-body);
 }
 

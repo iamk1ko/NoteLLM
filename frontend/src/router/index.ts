@@ -6,7 +6,6 @@ import ChatView from "@/views/ChatView.vue";
 import FileListView from "@/views/FileListView.vue";
 import CommunityView from "@/views/CommunityView.vue";
 import NotFoundView from "@/views/NotFoundView.vue";
-import UploadView from "@/views/UploadView.vue";
 import LoginView from "@/views/LoginView.vue";
 import RegisterView from "@/views/RegisterView.vue";
 
@@ -25,12 +24,6 @@ const router = createRouter({
       name: "register", 
       component: RegisterView, 
       meta: { title: "注册", public: true } 
-    },
-    { 
-      path: "/upload", 
-      name: "upload", 
-      component: UploadView, 
-      meta: { title: "文件上传" } 
     },
     { 
       path: "/files", 

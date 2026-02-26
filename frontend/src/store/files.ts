@@ -53,6 +53,17 @@ export const useFilesStore = defineStore("files", {
       } finally {
         this.loading = false;
       }
+    },
+    /**
+     * Refresh Detail (Silent Update for Polling)
+     */
+    async refreshDetail(id: number | string) {
+      // Updates detail without setting loading state or clearing previous detail
+      try {
+        this.detail = await fetchFileDetail(id);
+      } catch (e) {
+        console.error("Failed to refresh file detail", e);
+      }
     }
   }
 });

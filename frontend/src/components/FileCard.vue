@@ -10,13 +10,26 @@
     <div class="file-card__body">
       <h3 class="file-name" :title="file.filename">{{ file.filename }}</h3>
       <p class="file-meta">
-        {{ formatSize(file.file_size) }} · {{ formatTime(file.created_at) }}
+        {{ formatSize(file.file_size) }} · {{ formatTime(file.upload_time) }}
       </p>
     </div>
 
     <div class="file-card__footer">
       <span class="pill" :class="statusPillClass">{{ statusText }}</span>
       <div class="actions" @click.stop>
+        <!-- Re-vectorize button for failed files -->
+        <button 
+          v-if="file.status === 3" 
+          class="action-btn rev-vectorize-btn" 
+          @click="emit('revectorize', String(file.id))" 
+          title="RETRY VECTORIZE"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
         <button class="action-btn preview-btn" @click="emit('preview', String(file.id))" title="PREVIEW">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -54,6 +67,7 @@ const emit = defineEmits<{
   (e: 'click'): void;
   (e: 'delete', id: string): void;
   (e: 'preview', id: string): void;
+  (e: 'revectorize', id: string): void;
 }>();
 
 // 计算文件扩展名 (显示在图标中)
@@ -227,5 +241,9 @@ const statusText = computed(() => {
   border: 2px solid black;
   transform: translate(-2px, -2px);
   box-shadow: 4px 4px 0px black;
+}
+
+.action-btn.rev-vectorize-btn:hover {
+  background: #f59e0b; /* Amber for retry */
 }
 </style>

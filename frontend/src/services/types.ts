@@ -23,13 +23,14 @@ export interface FileItem {
   filename: string;
   file_size: number;
   content_type: string;
-  bucket_name: string;
-  object_name: string;
-  etag: string;
+  bucket_name: string | null;
+  object_name: string | null;
+  etag: string | null;
   is_public: boolean;
-  status: number; // 1: normal? need to clarify status codes
-  created_at: string;
-  updated_at: string;
+  status: number; // 0: 上传中, 1: 已上传(向量化中), 2: 已向量化(就绪), 3: 失败
+  upload_time: string;
+  update_time: string;
+  uploader_name?: string;
 }
 
 // For frontend compatibility (if we need to map to old structure, or update frontend to use new structure)

@@ -21,7 +21,7 @@
   "code": 0,          // 业务状态码，0 表示成功
   "message": "OK",    // 提示信息
   "data": {},         // 响应数据
-  "timestamp": "..."  // 响应时间 (ISO 8601)
+  "timestamp": "2024-01-01T00:00:00"  // 响应时间 (ISO 8601)
 }
 ```
 
@@ -75,6 +75,12 @@
 | name | string | 是 | 无 | 姓名 |
 | email | string | 否 | null | 邮箱 |
 
+- **参数说明**：
+  - username: 支持字母、数字、下划线，长度 1-20
+  - password: 本地学习阶段明文传输，长度 1-255
+  - name: 用户展示名称
+  - email: 可选，若填写需保证唯一
+
 - **响应格式**：
   ```json
   {
@@ -86,7 +92,12 @@
       "name": "管理员",
       "role": "user",
       "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
       "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
       "create_time": "2024-01-01T00:00:00",
       "update_time": "2024-01-01T00:00:00"
     },
@@ -107,6 +118,10 @@
 | username_or_email | string | 是 | 无 | 用户名或邮箱 |
 | password | string | 是 | 无 | 密码 |
 
+- **参数说明**：
+  - username_or_email: 支持用户名或邮箱
+  - password: 明文比对
+
 - **响应格式**：
   ```json
   {
@@ -118,7 +133,12 @@
       "name": "管理员",
       "role": "admin",
       "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
       "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
       "create_time": "2024-01-01T00:00:00",
       "update_time": "2024-01-01T00:00:00"
     },
@@ -170,7 +190,14 @@
         "name": "管理员",
         "email": "admin@example.com",
         "role": "admin",
-        ...
+        "status": 1,
+        "last_login_time": "2024-01-01T00:00:00",
+        "gender": 3,
+        "phone": "13800000000",
+        "avatar_file_id": 10,
+        "bio": "这个人很懒,什么都没写",
+        "create_time": "2024-01-01T00:00:00",
+        "update_time": "2024-01-01T00:00:00"
       }
     ],
     "timestamp": "2024-01-01T00:00:00"
@@ -191,13 +218,32 @@
 | size | integer | 否 | 10 | 每页数量，1-100 |
 | keyword | string | 否 | null | 模糊搜索关键词（匹配username/name/phone/email） |
 
+- **参数说明**：
+  - keyword: 为空时返回全部
+
 - **响应格式**：
   ```json
   {
     "code": 0,
     "message": "OK",
     "data": {
-      "items": [...],
+      "items": [
+        {
+          "id": 1,
+          "username": "admin",
+          "name": "管理员",
+          "email": "admin@example.com",
+          "role": "admin",
+          "status": 1,
+          "last_login_time": "2024-01-01T00:00:00",
+          "gender": 3,
+          "phone": "13800000000",
+          "avatar_file_id": 10,
+          "bio": "这个人很懒,什么都没写",
+          "create_time": "2024-01-01T00:00:00",
+          "update_time": "2024-01-01T00:00:00"
+        }
+      ],
       "total": 1,
       "page": 1,
       "size": 10
@@ -225,7 +271,12 @@
       "name": "管理员",
       "role": "admin",
       "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
       "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
       "create_time": "2024-01-01T00:00:00",
       "update_time": "2024-01-01T00:00:00"
     },
@@ -244,6 +295,30 @@
 | 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
 |--------|----------|----------|--------|------|
 | user_id | integer | 是 | 无 | 用户ID |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "id": 1,
+      "username": "admin",
+      "name": "管理员",
+      "role": "admin",
+      "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
+      "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
+      "create_time": "2024-01-01T00:00:00",
+      "update_time": "2024-01-01T00:00:00"
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
 
 #### 5.2.5 创建用户
 
@@ -264,6 +339,30 @@
 | avatar_file_id | integer | 否 | null | 头像文件ID |
 | bio | string | 否 | null | 个人简介 |
 
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "id": 1,
+      "username": "admin",
+      "name": "管理员",
+      "role": "user",
+      "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
+      "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
+      "create_time": "2024-01-01T00:00:00",
+      "update_time": "2024-01-01T00:00:00"
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
+
 #### 5.2.6 更新用户
 
 - **功能说明**：更新用户信息
@@ -282,6 +381,30 @@
 | avatar_file_id | integer | 否 | null | 头像文件ID |
 | bio | string | 否 | null | 个人简介 |
 
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "id": 1,
+      "username": "admin",
+      "name": "管理员",
+      "role": "user",
+      "status": 1,
+      "last_login_time": "2024-01-01T00:00:00",
+      "gender": 3,
+      "phone": "13800000000",
+      "email": "admin@example.com",
+      "avatar_file_id": 10,
+      "bio": "这个人很懒,什么都没写",
+      "create_time": "2024-01-01T00:00:00",
+      "update_time": "2024-01-01T00:00:00"
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
+
 #### 5.2.7 删除用户
 
 - **功能说明**：删除指定用户
@@ -293,6 +416,18 @@
 | 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
 |--------|----------|----------|--------|------|
 | user_id | integer | 是 | 无 | 用户ID |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "success": true
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
 
 ---
 
@@ -312,6 +447,10 @@
 | biz_type | string | 否 | "ai_chat" | 业务类型，如'ai_chat' |
 | context_id | string | 否 | null | 外部上下文ID，如PDF文档ID |
 | status | integer | 否 | 1 | 会话状态：1-正常，0-删除 |
+
+- **参数说明**：
+  - biz_type: ai_chat / pdf_qa / customer_service
+  - status: 1-正常，0-删除
 
 - **响应格式**：
   ```json
@@ -348,6 +487,10 @@
 | biz_type | string | 否 | null | 业务类型过滤 |
 | user_id | integer | 否 | null | 管理员可指定用户ID |
 
+- **参数说明**：
+  - biz_type: 为空返回全部
+  - user_id: 仅管理员生效
+
 - **响应格式**：
   ```json
   {
@@ -363,7 +506,8 @@
           "user_id": 1,
           "status": 1,
           "create_time": "2024-01-01T00:00:00",
-          "update_time": "2024-01-01T00:00:00"
+          "update_time": "2024-01-01T00:00:00",
+          "file_count": 2
         }
       ],
       "total": 1,
@@ -400,6 +544,7 @@
       "status": 1,
       "create_time": "2024-01-01T00:00:00",
       "update_time": "2024-01-01T00:00:00",
+      "file_count": 2,
       "files": [1, 2, 3]
     },
     "timestamp": "2024-01-01T00:00:00"
@@ -501,7 +646,7 @@
     "code": 0,
     "message": "OK",
     "data": {
-      "summary_content": "# 笔记总结\n\n## 核心结论...",
+      "summary_content": "# 笔记总结\n\n## 核心结论\n- 结论1\n- 结论2\n\n## 行动建议\n- 建议1\n- 建议2",
       "created_at": "2024-01-01T00:00:00"
     },
     "timestamp": "2024-01-01T00:00:00"
@@ -526,6 +671,9 @@
 | content | string | 是 | 无 | 消息内容 |
 | role | string | 否 | "user" | 消息角色，如user、assistant |
 | model_name | string | 否 | null | 模型名称 |
+
+- **参数说明**：
+  - role: user / assistant / system / tool
 
 - **响应格式**：
   ```json
@@ -560,6 +708,10 @@
 | page | integer | 否 | 1 | 页码，从1开始 |
 | size | integer | 否 | 20 | 每页数量，1-200 |
 
+- **参数说明**：
+  - page: 从 1 开始
+  - size: 最大 200
+
 - **响应格式**：
   ```json
   {
@@ -569,8 +721,8 @@
       "items": [
         {
           "id": 1,
-            "session_id": 1,
-            "user_id": 1,
+          "session_id": 1,
+          "user_id": 1,
           "role": "user",
           "content": "你好",
           "model_name": null,
@@ -626,8 +778,9 @@
           "etag": "abc12345",
           "is_public": false,
           "status": 1,
-          "created_at": "2024-01-01T00:00:00",
-          "updated_at": "2024-01-01T00:00:00"
+          "upload_time": "2024-01-01T00:00:00",
+          "update_time": "2024-01-01T00:00:00",
+          "uploader_name": "管理员"
         }
       },
       "timestamp": "2024-01-01T00:00:00"
@@ -670,6 +823,11 @@
 | is_public | boolean | 否 | false | 是否为公共文件 |
 | file_chunk | file | 是 | 无 | 分片文件本体 |
 
+- **参数说明**：
+  - chunk_index: 从 0 开始
+  - total_chunks: 分片总数
+  - total_size: 文件总大小
+
 - **去重说明**：
   - 同一用户上传相同 MD5 文件时返回 exists=true
   - status=FAILED 时允许重新上传
@@ -684,7 +842,8 @@
         "file_md5": "abc12345",
         "chunk_md5": "def67890",
         "chunk_index": 0,
-        "uploaded": true
+        "uploaded": true,
+        "file_id": 1
       },
       "timestamp": "2024-01-01T00:00:00"
     }
@@ -770,8 +929,18 @@
     "message": "OK",
     "data": {
       "id": 1,
+      "user_id": 1,
       "filename": "test.pdf",
-      ...
+      "file_size": 1024,
+      "content_type": "application/pdf",
+      "bucket_name": "rag-files",
+      "object_name": "abc12345/test.pdf",
+      "etag": "abc12345",
+      "is_public": false,
+      "status": 1,
+      "upload_time": "2024-01-01T00:00:00",
+      "update_time": "2024-01-01T00:00:00",
+      "uploader_name": "管理员"
     },
     "timestamp": "2024-01-01T00:00:00"
   }
@@ -796,6 +965,7 @@
 
 - **参数说明**：
   - status 支持：0-上传中，1-已上传，2-已向量化，3-失败
+  - content_type 示例：application/pdf、text/markdown
 
 - **响应格式**：
   ```json
@@ -806,8 +976,18 @@
       "items": [
         {
           "id": 1,
+          "user_id": 1,
           "filename": "test.pdf",
-          ...
+          "file_size": 1024,
+          "content_type": "application/pdf",
+          "bucket_name": "rag-files",
+          "object_name": "abc12345/test.pdf",
+          "etag": "abc12345",
+          "is_public": false,
+          "status": 2,
+          "upload_time": "2024-01-01T00:00:00",
+          "update_time": "2024-01-01T00:00:00",
+          "uploader_name": "管理员"
         }
       ],
       "total": 1,
@@ -836,8 +1016,25 @@
     "code": 0,
     "message": "OK",
     "data": {
-      "file": {...},
-      "progress": null
+      "file": {
+        "id": 1,
+        "user_id": 1,
+        "filename": "test.pdf",
+        "file_size": 1024,
+        "content_type": "application/pdf",
+        "bucket_name": "rag-files",
+        "object_name": "abc12345/test.pdf",
+        "etag": "abc12345",
+        "is_public": false,
+        "status": 0,
+        "upload_time": "2024-01-01T00:00:00",
+        "update_time": "2024-01-01T00:00:00",
+        "uploader_name": "管理员"
+      },
+      "progress": {
+        "uploaded_chunks": 3,
+        "total_chunks": 10
+      }
     },
     "timestamp": "2024-01-01T00:00:00"
   }
@@ -862,7 +1059,7 @@
     "code": 0,
     "message": "OK",
     "data": {
-      "url": "http://minio:9000/bucket/file.pdf?..."
+      "url": "http://minio:9000/bucket/file.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F20240101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20240101T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=abcdef123456"
     },
     "timestamp": "2024-01-01T00:00:00"
   }
@@ -880,6 +1077,37 @@
 |--------|----------|----------|--------|------|
 | page | integer | 否 | 1 | 页码，从1开始 |
 | size | integer | 否 | 10 | 每页数量，1-100 |
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "items": [
+        {
+          "id": 1,
+          "user_id": 2,
+          "filename": "public.pdf",
+          "file_size": 2048,
+          "content_type": "application/pdf",
+          "bucket_name": "rag-public",
+          "object_name": "def67890/public.pdf",
+          "etag": "def67890",
+          "is_public": true,
+          "status": 2,
+          "upload_time": "2024-01-01T00:00:00",
+          "update_time": "2024-01-01T00:00:00",
+          "uploader_name": "用户A"
+        }
+      ],
+      "total": 1,
+      "page": 1,
+      "size": 10
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
 
 #### 5.5.9 删除文件
 
@@ -907,11 +1135,45 @@
 
 > **注意**：删除文件时，系统会自动删除与该文件关联的所有聊天会话。
 
-#### 5.5.10 重新向量化文件 (待实现接口)
+#### 5.5.10 文件状态查询
+
+- **功能说明**：获取文件状态与上传进度
+- **请求方法**：GET
+- **URL路径**：/files/{file_id}/status
+- **是否需要登录**：是
+- **请求参数**：
+
+| 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
+|--------|----------|----------|--------|------|
+| file_id | integer | 是 | 无 | 文件ID |
+
+- **参数说明**：
+  - progress: 仅上传中返回，其他状态为 null
+
+- **响应格式**：
+  ```json
+  {
+    "code": 0,
+    "message": "OK",
+    "data": {
+      "file_id": 1,
+      "status": 0,
+      "upload_time": "2024-01-01T00:00:00",
+      "update_time": "2024-01-01T00:00:00",
+      "progress": {
+        "uploaded_chunks": 3,
+        "total_chunks": 10
+      }
+    },
+    "timestamp": "2024-01-01T00:00:00"
+  }
+  ```
+
+#### 5.5.11 重新向量化文件
 
 - **功能说明**：重新触发文件的向量化任务（仅当文件状态为失败时可用）
 - **请求方法**：POST
-- **URL路径**：/files/{file_id}/re-vectorize
+- **URL路径**：/files/{file_id}/retry
 - **是否需要登录**：是
 - **请求参数**：
 
@@ -932,7 +1194,7 @@
   }
   ```
 
-- **错误响应**（文件状态不是失败时）：
+ - **错误响应**（文件状态不是失败时）：
   ```json
   {
     "code": 400,
@@ -991,6 +1253,10 @@
 | sort | string | 否 | "latest" | 排序方式: "latest"(最新), "popular"(最热) |
 | tag | string | 否 | null | 按标签筛选 |
 
+- **参数说明**：
+  - sort: latest / popular
+  - tag: 单个标签过滤
+
 - **响应格式**：
   ```json
   {
@@ -1001,7 +1267,7 @@
         {
           "id": 101,
           "title": "Python面试题",
-          "description": "整理了常见面试题...",
+          "description": "整理了常见面试题并提供简要答案",
           "tags": ["Python", "面试"],
           "user_id": 1,
           "user_name": "TechGuru",
@@ -1053,6 +1319,9 @@
 |--------|----------|----------|------|
 | action | string | 是 | "like" 或 "unlike" |
 
+- **参数说明**：
+  - action: like / unlike
+
 - **响应格式**：
   ```json
   {
@@ -1100,3 +1369,54 @@
 4. 所有时间字段返回格式为 ISO 8601 格式
 5. 错误响应的 code 字段与 HTTP 状态码一致，或为特定业务错误码
 6. 基础设施客户端（Redis/MinIO/RabbitMQ/Milvus）统一在应用启动时初始化，并通过依赖注入获取实例
+
+---
+
+## 7. 字段字典
+
+### 7.1 文件状态 (file.status)
+
+| 值 | 含义 |
+|----|------|
+| 0 | 上传中 |
+| 1 | 已上传 |
+| 2 | 已向量化 |
+| 3 | 失败 |
+
+### 7.2 会话状态 (session.status)
+
+| 值 | 含义 |
+|----|------|
+| 1 | 正常 |
+| 0 | 删除 |
+
+### 7.3 会话业务类型 (session.biz_type)
+
+| 值 | 含义 |
+|----|------|
+| ai_chat | 通用对话 |
+| pdf_qa | 文档问答 |
+| customer_service | 客服场景 |
+
+### 7.4 消息角色 (message.role)
+
+| 值 | 含义 |
+|----|------|
+| user | 用户输入 |
+| assistant | AI 回复 |
+| system | 系统提示 |
+| tool | 工具调用 |
+
+### 7.5 社区列表排序 (community.sort)
+
+| 值 | 含义 |
+|----|------|
+| latest | 最新 |
+| popular | 最热 |
+
+### 7.6 点赞动作 (community.action)
+
+| 值 | 含义 |
+|----|------|
+| like | 点赞 |
+| unlike | 取消点赞 |

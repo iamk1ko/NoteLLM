@@ -50,10 +50,11 @@ export const fetchFiles = async (params: { page?: number; size?: number; include
 /**
  * Get File Detail
  * GET /files/{id}
+ * API Response: { code: 0, data: { file: FileItem, progress: {...} } }
  */
 export const fetchFileDetail = async (id: number | string): Promise<FileItem> => {
-  const { data } = await http.get<ApiResponse<FileItem>>(`/files/${id}`);
-  return data.data;
+  const { data } = await http.get<ApiResponse<{ file: FileItem }>>(`/files/${id}`);
+  return data.data.file;
 };
 
 /**
@@ -210,6 +211,15 @@ export const uploadFile = async (
  */
 export const deleteFile = async (id: number | string): Promise<void> => {
   await http.delete(`/files/${id}`);
+};
+
+/**
+ * Re-vectorize File (Retry)
+ * POST /files/{id}/retry
+ */
+export const reVectorizeFile = async (id: number | string): Promise<void> => {
+  const { data } = await http.post<ApiResponse<{ success: boolean }>>(`/files/${id}/retry`);
+  return data.data;
 };
 
 // Public files if needed

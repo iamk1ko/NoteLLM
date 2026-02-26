@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-
 from langchain_classic.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_openai import ChatOpenAI
 
 from app.core.logging import get_logger
 
@@ -93,9 +92,3 @@ class LLMService:
             # 其他角色默认作为用户消息
 
         return result
-
-
-class LLMServiceError(Exception):
-    """LLM 服务异常"""
-
-    pass

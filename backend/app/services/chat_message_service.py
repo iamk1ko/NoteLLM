@@ -14,6 +14,7 @@ from app.schemas.chat_message import ChatMessageCreate
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
+from app.services.rag import RagResult
 
 logger = get_logger(__name__)
 
@@ -45,12 +46,12 @@ class ChatMessageService:
     """聊天消息业务服务层（异步版） - 集成 RAG + LLM"""
 
     def __init__(
-        self,
-        db: AsyncSession,
-        llm_service: LLMService | None = None,
-        redis_memory_factory: Callable[[int], RedisChatMemory] | None = None,
-        markdown_memory: MarkdownMemoryService | None = None,
-        rag_service_factory: Callable | None = None,
+            self,
+            db: AsyncSession,
+            llm_service: LLMService | None = None,
+            redis_memory_factory: Callable[[int], RedisChatMemory] | None = None,
+            markdown_memory: MarkdownMemoryService | None = None,
+            rag_service_factory: Callable | None = None,
     ):
         """初始化服务
 
@@ -93,10 +94,9 @@ class ChatMessageService:
 
         # 默认创建
         from app.core.redis_client import get_redis_client
-        import redis.asyncio as redis
 
         redis_client = get_redis_client()
-        return RedisChatMemory(redis_client, session_id)
+        return RedisChatMemory(redis_client, session_id, memory_limit=10)
 
     def _get_markdown_memory(self) -> MarkdownMemoryService:
         """获取 Markdown 记忆实例"""
@@ -113,14 +113,7 @@ class ChatMessageService:
         if self._rag_service_factory:
             return await self._rag_service_factory(self.db)
 
-        # 从 app.state 获取已初始化的服务（不依赖 FastAPI Depends）
-        from app.core.app_state import get_app_state
-        from app.services.rag.service import RagService
-        from app.services.vectorization.embedder import BgeM3Embedder
-        from app.core.settings import get_settings
-
         try:
-            settings = get_settings()
 
             # 直接创建 Redis 客户端（不使用 Depends）
             from app.core.redis_client import get_redis_client
@@ -138,7 +131,7 @@ class ChatMessageService:
             return None
 
     async def send_message(
-        self, user: User, session_id: int, payload: ChatMessageCreate
+            self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> ChatMessage | None:
         """发送消息（非流式，返回完整响应）"""
         start_time = time.time()
@@ -208,7 +201,7 @@ class ChatMessageService:
         return ai_message
 
     async def send_message_stream(
-        self, user: User, session_id: int, payload: ChatMessageCreate
+            self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> AsyncGenerator[str, None]:
         """发送消息（流式响应）- yield 每个 token"""
         start_time = time.time()
@@ -246,10 +239,10 @@ class ChatMessageService:
         llm_start = time.time()
         try:
             async for token in self._generate_ai_response_stream(
-                user_id=user.id,
-                session_id=session_id,
-                user_message=payload.content,
-                file_id=session.context_id,
+                    user_id=user.id,
+                    session_id=session_id,
+                    user_message=payload.content,
+                    file_id=session.context_id,
             ):
                 full_response += token
                 token_count += 1
@@ -289,11 +282,11 @@ class ChatMessageService:
             )
 
     async def get_message_history(
-        self,
-        user: User,
-        session_id: int,
-        page: int = 1,
-        size: int = 20,
+            self,
+            user: User,
+            session_id: int,
+            page: int = 1,
+            size: int = 20,
     ) -> tuple[Sequence[ChatMessage], int]:
         """获取消息历史（分页）- 从 MySQL"""
         if user.role == "admin":
@@ -319,11 +312,11 @@ class ChatMessageService:
             )
 
     async def _generate_ai_response(
-        self,
-        user_id: int,
-        session_id: int,
-        user_message: str,
-        file_id: str | None,
+            self,
+            user_id: int,
+            session_id: int,
+            user_message: str,
+            file_id: str | None,
     ) -> str:
         """生成 AI 响应（整合 RAG）- 同步版本"""
         # 获取依赖服务
@@ -405,11 +398,11 @@ class ChatMessageService:
         return response
 
     async def _generate_ai_response_stream(
-        self,
-        user_id: int,
-        session_id: int,
-        user_message: str,
-        file_id: str | None,
+            self,
+            user_id: int,
+            session_id: int,
+            user_message: str,
+            file_id: str | None,
     ) -> AsyncGenerator[str, None]:
         """生成 AI 响应（流式）- async generator"""
         # 获取依赖服务
@@ -420,20 +413,20 @@ class ChatMessageService:
         # 从 MySQL 加载历史到 Redis（如果需要）
         await redis_memory.load_from_mysql(self.db)
 
-        # 获取对话历史
-        history = await redis_memory.get_context_for_llm(limit=10)
+        # 获取对话历史, 默认只获取10条历史（在 RedisChatMemory 中配置）
+        history = await redis_memory.get_context_for_llm()
 
         # RAG 检索
         context = ""
         if file_id:
             try:
-                rag_service = await self._get_rag_service()
+                rag_service = await self._get_rag_service() # NOTE: 这里代码有问题
                 if rag_service is None:
                     logger.warning("RAG 服务不可用，跳过检索")
                 else:
                     from app.services.rag.schemas import RagQuery
 
-                    rag_result = await rag_service.search(
+                    rag_result: RagResult = await rag_service.search(
                         RagQuery(
                             text=user_message,
                             session_id=session_id,
@@ -492,11 +485,11 @@ class ChatMessageService:
         )
 
     def _build_prompt(
-        self,
-        user_message: str,
-        context: str,
-        history: list[dict],
-        long_term_memory: str,
+            self,
+            user_message: str,
+            context: str,
+            history: list[dict],
+            long_term_memory: str,
     ) -> list[dict]:
         """构建 LLM 提示词"""
         # 构建历史对话字符串
@@ -508,12 +501,12 @@ class ChatMessageService:
 
         # 填充模板
         prompt_text = RAG_PROMPT_TEMPLATE.format(
-            context=context or "（无检索结果）",
+            context=context or "（无检索结果）",  # NOTE: context 为 RAG 检索结果
             history=history_str or "（无历史对话）",
             question=user_message,
         )
 
-        # 添加长期记忆作为参考
+        # 添加长期记忆作为参考 NOTE: 这部分内容较长，放在最后，供 LLM 参考，不作为主要上下文. 这里还可以优化，比如只添加最近的部分记忆，或者添加记忆摘要等
         if long_term_memory:
             prompt_text += f"\n\n---\n\n# 历史摘要\n\n{long_term_memory}"
 

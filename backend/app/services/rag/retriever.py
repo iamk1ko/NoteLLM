@@ -10,16 +10,16 @@ logger = get_logger(__name__)
 
 class HybridRetriever:
     def __init__(
-        self,
-        *,
-        embedder: Embedder,
-        vector_store: MilvusVectorStore,
+            self,
+            *,
+            embedder: Embedder,
+            vector_store: MilvusVectorStore,
     ) -> None:
         self.embedder = embedder
         self.vector_store = vector_store
 
     async def retrieve(
-        self, query: str, top_k: int, filters: dict | None = None
+            self, query: str, top_k: int, filters: dict | None = None
     ) -> tuple[list[dict], list[dict]]:
         dense_hits: list[dict] = []
         bm25_hits: list[dict] = []

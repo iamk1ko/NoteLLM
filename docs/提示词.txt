@@ -650,3 +650,34 @@ LLM记忆模块:
 
 
 我需要你帮我梳理一下目前这三个模块的代码结构和业务流程，指出其中存在的设计问题和潜在风险点，并给出具体的优化建议和改进方案，确保系统能够高效、安全、稳定地处理用户的检索和聊天需求。
+
+
+[后端部分代码重构]
+main.py: 在main函数中，项目启动时我初始化了项目所需要的外部服务 (`await state.infra.init()`)。方便后续在其他地方进行依赖注入。
+backend/app/core/providers.py: 其中一共初始化了5个服务（redis、minio、rabbitmq、milvus、embedder）。
+backend/app/services/chat_message_service.py: chat_message的service层，主要负责有关于与LLM对话的业务代码。
+
+我的需求：
+现在我需要重构有关于调用聊天接口的业务代码。
+
+我发现的一些问题代码：
+1. 我发现chat_message中有关注入的代码好繁琐复杂。尤其是构建ChatMessageService实体类时。
+2. 其中`ChatMessageService`中我发现了有在显式导入`from app.core.redis_client import get_redis_client`获取redis客户端等，并且其中的`_get_rag_service()`方法中的 try 代码块中可能并没有什么作用。
+3. `ChatMessageService`中部分代码存在冗余、逻辑混乱等问题，不够简洁优雅。因为我发现代码"backend/app/api/v1/endpoints/files.py"中调用`FileStorageService`执行业务代码时就很简洁，controller层（即endpoints）中代码量不大，职责清晰分明。
+4.  `ChatMessageService`中使用了`rag_result: RagResult = await rag_service.search()`来进行混合检索（对应代码文件"backend/app/services/rag/service.py"中的RagService类）。但是我在项目初始化的外部服务`milvus`中（实际为自定义的MilvusVectorStore类）有`search_hybrid(self, *, query: str, query_vector: list[float], k: int = 5, filters: Optional[Dict[str, Any]] = None, alpha: float = 0.7,)` 这样混合搜索的方法。里面也涵盖了重排序的规则。那么代码文件"backend/app/services/rag/retriever.py"中的类HybridRetriever就显得很多余了。此外代码文件"backend/app/services/rag/ranker.py"中的HybridRanker类也显得多余了。
+5. 除此之外，我还需要优化长期记忆管理（"backend/app/services/memory/markdown_memory.py"）MarkdownMemoryService类。长期记忆的markdown文档不需要记录对话历史记录了，以后由redis从mysql中动态加载。只记录一些摘要信息（需要额外调用一次LLM进行对话总结）。例如，我希望长期记忆里面包含：
+    - [Role & Policies]: 明确 Agent/LLM 的角色定位和行为准则。
+    - [Task]: 当前需要完成的具体任务 (因为后续我可能还会为LLM添加tools或mcp服务去自主完成其他任务).
+    - [State]: Agent 的当前状态和上下文信息
+    - [Evidence]: 从外部知识库检索的证据信息 (由RAG混合检索动态添加)
+    - [Output]：期望的输出格式和要求
+注意其中每个部分所填写的内容都以文本形式填入, 避免因为填入信息中包含markdown格式的特殊符号，导致长期记忆md文件结构混乱，比如：
+===================
+# Role & Policies
+
+```markdown
+你是一个智能问答助手，你需要......
+```
+
+===================
+

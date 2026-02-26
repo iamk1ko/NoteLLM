@@ -18,10 +18,10 @@ class RedisChatMemory:
     """Redis 短期记忆服务 - 滑动窗口式存储"""
 
     def __init__(
-        self,
-        redis_client: Redis,
-        session_id: int,
-        memory_limit: int | None = None,
+            self,
+            redis_client: Redis,
+            session_id: int,
+            memory_limit: int | None = None,
     ) -> None:
         settings = get_settings()
         self.redis = redis_client
@@ -106,9 +106,9 @@ class RedisChatMemory:
             len(messages_list),
         )
 
-    async def get_context_for_llm(self, limit: int | None = None) -> list[dict]:
+    async def get_context_for_llm(self) -> list[dict]:
         """获取用于 LLM 上下文的对话历史"""
-        messages = await self.get_recent_messages(limit)
+        messages = await self.get_recent_messages(self.memory_limit)
 
         # 转换为 LLM 需要的格式
         return [{"role": msg["role"], "content": msg["content"]} for msg in messages]

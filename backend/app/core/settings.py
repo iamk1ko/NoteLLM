@@ -116,7 +116,7 @@ class Settings(BaseSettings):
 
     # Chat Memory Config
     # Redis 短期记忆 - 滑动窗口大小
-    REDIS_MEMORY_LIMIT: int = 20
+    REDIS_MEMORY_LIMIT: int = 10
     # Markdown 长期记忆 - 最大字符数
     MEMORY_MAX_CHARS: int = 12000
 

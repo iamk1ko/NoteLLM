@@ -21,15 +21,15 @@ logger = get_logger(__name__)
 
 class RagService:
     def __init__(
-        self,
-        *,
-        db: Session | AsyncSession,
-        redis_client: Redis | None,
-        vector_store: MilvusVectorStore,
-        embedder: Embedder,
-        history_limit: int = 8,
-        cache_ttl_seconds: int = 300,
-        alpha: float = 0.7,
+            self,
+            *,
+            db: Session | AsyncSession,
+            redis_client: Redis | None,
+            vector_store: MilvusVectorStore,
+            embedder: Embedder,
+            history_limit: int = 8,
+            cache_ttl_seconds: int = 300,
+            alpha: float = 0.7,
     ) -> None:
         self.memory = ConversationMemory(db, history_limit=history_limit)
         self.retriever = HybridRetriever(
@@ -90,12 +90,6 @@ class RagService:
             len(ranked),
         )
         return RagResult(query=query, hits=ranked, elapsed_ms=elapsed_ms)
-
-    async def _with_context(self, query: RagQuery) -> str:
-        history = await self.memory.get_recent_messages(query.session_id)
-        if not history:
-            return query.text
-        return "\n".join(list(history) + [query.text])
 
     @staticmethod
     def _hit_from_dict(data: dict) -> RagHit:

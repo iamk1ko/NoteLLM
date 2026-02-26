@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,9 +33,9 @@ class SessionFileBindIn(BaseModel):
 
 @router.post("/sessions", response_model=ApiResponse[ChatSessionOut])
 async def create_session(
-    payload: ChatSessionCreate,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        payload: ChatSessionCreate,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionOut]:
     """创建会话。"""
 
@@ -43,12 +45,12 @@ async def create_session(
 
 @router.get("/sessions", response_model=ApiResponse[ChatSessionListResponse])
 async def list_sessions(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    biz_type: str | None = Query(None, description="业务类型过滤"),
-    user_id: int | None = Query(None, description="管理员可指定用户ID"),
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        biz_type: Optional[str] = Query(None, description="业务类型过滤"),
+        user_id: Optional[int] = Query(None, description="管理员可指定用户ID"),
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionListResponse]:
     """查询会话列表（分页）。"""
 
@@ -66,9 +68,9 @@ async def list_sessions(
 
 @router.get("/sessions/{session_id}", response_model=ApiResponse[ChatSessionWithFiles])
 async def get_session_detail(
-    session_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        session_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ChatSessionWithFiles]:
     """获取会话详情。"""
 
@@ -87,9 +89,9 @@ async def get_session_detail(
 
 @router.delete("/sessions/{session_id}", response_model=ApiResponse[dict])
 async def delete_session(
-    session_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        session_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """删除会话。"""
 
@@ -101,10 +103,10 @@ async def delete_session(
 
 @router.post("/sessions/{session_id}/files", response_model=ApiResponse[dict])
 async def attach_files(
-    session_id: int,
-    payload: SessionFileBindIn,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        session_id: int,
+        payload: SessionFileBindIn,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """关联文件到会话。"""
 
@@ -116,10 +118,10 @@ async def attach_files(
 
 @router.delete("/sessions/{session_id}/files", response_model=ApiResponse[dict])
 async def detach_files(
-    session_id: int,
-    payload: SessionFileBindIn,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        session_id: int,
+        payload: SessionFileBindIn,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """取消文件与会话关联。"""
 
@@ -133,12 +135,12 @@ async def detach_files(
     "/sessions/{session_id}/summary", response_model=ApiResponse[SessionSummaryResponse]
 )
 async def generate_summary(
-    session_id: int,
-    payload: SessionSummaryRequest,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        session_id: int,
+        payload: SessionSummaryRequest,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[SessionSummaryResponse]:
-    """生成会话总结笔记 (Mock)。"""
+    """TODO: 生成会话总结笔记 (目前仅仅是模拟 Mock)。"""
 
     # 1. 验证会话权限
     service = ChatSessionService(db)
@@ -147,8 +149,6 @@ async def generate_summary(
         raise HTTPException(status_code=404, detail="会话不存在或无权限")
 
     # 2. 调用 LLM 生成总结 (Mock)
-    # TODO: Fetch chat history and send to LLM
-
     title = session.title or "未命名会话"
     topics_md = ""
     if payload.focus_topics:

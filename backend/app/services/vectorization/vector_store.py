@@ -36,14 +36,14 @@ FILE_MD5_MAX_LENGTH = (
 
 class MilvusVectorStore:
     def __init__(
-        self,
-        *,
-        uri: str,
-        collection_name: str,
-        dim: int = 1024,
-        metric_type: str = "COSINE",
-        alias: str = "default",
-        embedder: Embedder | None = None,
+            self,
+            *,
+            uri: str,
+            collection_name: str,
+            dim: int = 1024,
+            metric_type: str = "COSINE",
+            alias: str = "default",
+            embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -108,8 +108,9 @@ class MilvusVectorStore:
             raise
 
     def _setup_embedding_model(self) -> Optional[Embedder]:
+        """初始化默认的嵌入模型"""
         if self.embedder is not None:
-            return self.embedder
+            return self.embedder  # 如果已经有了，就直接用
 
         settings = get_settings()
         logger.info(f"正在初始化 BGE-M3 嵌入模型: {settings.EMBEDDING_MODEL_NAME}...")
@@ -439,7 +440,7 @@ class MilvusVectorStore:
             batch_size = get_settings().VS_BATCH_SIZE
             total_inserted = 0
             for i in range(0, len(entities), batch_size):
-                batch = entities[i : i + batch_size]
+                batch = entities[i: i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -542,11 +543,11 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-        self,
-        *,
-        query_vector: list[float],
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query_vector: list[float],
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -591,11 +592,11 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-        self,
-        *,
-        query: str,
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query: str,
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -640,13 +641,13 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-        self,
-        *,
-        query: str,
-        query_vector: list[float],
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
-        alpha: float = 0.7,
+            self,
+            *,
+            query: str,
+            query_vector: list[float],
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
+            alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         logger.info(f"混合检索开始，alpha={alpha}, top_k={k}")

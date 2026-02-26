@@ -19,6 +19,7 @@ from app.core.minio_client import (
     init_minio_buckets,
 )
 from app.core.logging import get_logger
+from app.services.vectorization import BgeM3Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 from app.core.settings import get_settings
 
@@ -38,6 +39,7 @@ class InfraProvider:
     minio: Minio | None = None
     rabbitmq: AbstractRobustConnection | None = None
     milvus: MilvusVectorStore | None = None
+    embedder: Any = None  # 兼容：也支持直接挂载
 
     async def init(self) -> None:
         """初始化所有客户端。
@@ -71,11 +73,28 @@ class InfraProvider:
             self.rabbitmq = None
 
         try:
+            logger.info(f"正在初始化 BGE-M3 嵌入模型: {settings.EMBEDDING_MODEL_NAME}...")
+            self.embedder = BgeM3Embedder(
+                model_name=settings.EMBEDDING_MODEL_NAME,
+                device=settings.EMBEDDING_DEVICE,
+                use_fp16=False,
+            )
+            logger.info(f"嵌入模型初始化完成。密集向量维度: {self.embedder.dim}")
+            if self.embedder.dim != settings.EMBEDDING_DIM:
+                raise ValueError(
+                    f"Embedding dim mismatch: model={self.embedder.dim}, config={settings.EMBEDDING_DIM}"
+                )
+        except Exception as e:
+            logger.error(f"初始化嵌入模型失败: {e}")
+            self.embedder = None
+
+        try:
             # 初始化 Milvus
             self.milvus = MilvusVectorStore(
                 uri=settings.MILVUS_URI,
                 collection_name=settings.VECTOR_COLLECTION,
                 dim=settings.EMBEDDING_DIM,
+                embedder=self.embedder,
             )
             # 启动时检查/创建集合
             await self.milvus.init_collection(is_renew_collection=False)

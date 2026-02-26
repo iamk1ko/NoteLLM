@@ -13,11 +13,11 @@ class RedisKey(str, Enum):
     FILE_VECTORIZATION_TASK_RETRYABLE = "vector:task:retryable:{}"
     FILE_VECTORIZATION_TASK_UPDATED_AT = "vector:task:updated_at:{}"
     FILE_VECTORIZATION_TASK_CURSOR = "vector:cursor:{}"
-    USER_SESSION = "auth:session:{}"
+    USER_SESSION = "auth:session:{}"  # {} 填写 session_id
     # Chat Memory - 短期记忆 (Redis List，滑动窗口)
-    CHAT_SESSION_MESSAGES = "chat:session:{}:messages"
+    CHAT_SESSION_MESSAGES = "chat:session:{}:messages"  # {} 填写 session_id
     # Chat Memory - 缓存标记 (用于标记该会话是否已加载过完整历史)
-    CHAT_SESSION_CACHE_FLAG = "chat:session:{}:cached"
+    CHAT_SESSION_CACHE_FLAG = "chat:session:{}:cached"  # {} 填写 session_id
 
 
 @unique

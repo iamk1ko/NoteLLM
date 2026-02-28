@@ -17,10 +17,10 @@ class RedisChatMemory:
     """Redis 短期记忆服务 - 滑动窗口式存储"""
 
     def __init__(
-            self,
-            redis_client: Redis,
-            session_id: int,
-            memory_limit: int | None = None,
+        self,
+        redis_client: Redis,
+        session_id: int,
+        memory_limit: int | None = None,
     ) -> None:
         settings = get_settings()
         self.redis = redis_client
@@ -37,6 +37,10 @@ class RedisChatMemory:
     async def has_cache(self) -> bool:
         cached = await self.redis.get(self._cache_flag_key)
         return bool(cached)
+
+    async def clear_cache(self) -> None:
+        await self.redis.delete(self._key)
+        await self.redis.delete(self._cache_flag_key)
 
     async def get_recent_messages(self, limit: int | None = None) -> list[dict]:
         """获取最近的 N 条消息（从 Redis）"""

@@ -23,17 +23,23 @@ class RetryTopology:
         - dlx_exchange: 用于死信的交换机。
         这个数据类封装了与重试和死信机制相关的所有信息，方便在消费者中使用。
     """
+
     queue_name: str
     retry_queue_names: list[str]
     dlq_name: str
     retry_exchange: AbstractExchange
     dlx_exchange: AbstractExchange
+    configured: bool
+    main_queue_args: dict[str, Any]
 
 
 async def declare_retry_topology(
         channel: AbstractChannel,
         queue_name: str,
         retry_ttl_ms_list: list[int],
+        *,
+        force_recreate: bool = False,
+        enable_dlq: bool = True,
 ) -> RetryTopology:
     """
     声明一个带重试和死信机制的 RabbitMQ 拓扑结构。包括：
@@ -45,6 +51,8 @@ async def declare_retry_topology(
         channel: 已连接的 RabbitMQ 频道。
         queue_name: 主队列名称。
         retry_ttl_ms_list: 重试队列中消息的 TTL（毫秒）列表，每个 TTL 对应一个重试队列，支持多级重试。
+        force_recreate: 是否强制删除已存在的队列并重新创建（仅建议开发环境使用，生产环境慎用）。
+        enable_dlq: 是否启用死信队列和死信交换机。
     Returns:
         RetryTopology (重试拓扑) 对象，包含相关队列和交换机的信息。
     """
@@ -61,15 +69,38 @@ async def declare_retry_topology(
         durable=True,
     )
 
+    # 可选：强制删除旧队列，避免参数不一致导致启动失败（仅建议开发环境）。
+    if force_recreate:
+        try:
+            await channel.queue_delete(queue_name)
+        except Exception:
+            pass
+
     # 声明主队列，指定死信交换机和路由键（重试到 retry_exchange）：
-    await channel.declare_queue(
-        queue_name,
-        durable=True,
-        arguments={
-            "x-dead-letter-exchange": retry_exchange.name,
-            "x-dead-letter-routing-key": queue_name,
-        },
-    )
+    try:
+        await channel.declare_queue(
+            queue_name,
+            durable=True,
+            arguments={
+                "x-dead-letter-exchange": retry_exchange.name,
+                "x-dead-letter-routing-key": queue_name,
+            },
+        )
+    except Exception as e:
+        logger.warning(
+            "队列已存在且参数不一致，跳过DLX配置: queue={}, error={}",
+            queue_name,
+            e,
+        )
+        return RetryTopology(
+            queue_name=queue_name,
+            retry_queue_names=[],
+            dlq_name=f"{queue_name}.dlq",
+            retry_exchange=retry_exchange,
+            dlx_exchange=dlx_exchange,
+            configured=False,
+            main_queue_args={},
+        )
 
     # 根据 retry_ttl_ms_list 声明多个重试队列，每个队列对应一个 TTL，声明时指定死信交换机和路由键（重试到主队列）：
     retry_queue_names: list[str] = []
@@ -89,8 +120,9 @@ async def declare_retry_topology(
 
     # 声明死信队列，并绑定到死信交换机：
     dlq_name = f"{queue_name}.dlq"
-    dlq_queue = await channel.declare_queue(dlq_name, durable=True)
-    await dlq_queue.bind(dlx_exchange, routing_key=queue_name)
+    if enable_dlq:
+        dlq_queue = await channel.declare_queue(dlq_name, durable=True)
+        await dlq_queue.bind(dlx_exchange, routing_key=queue_name)
 
     # 返回封装了拓扑信息的 RetryTopology 对象：
     return RetryTopology(
@@ -99,6 +131,11 @@ async def declare_retry_topology(
         dlq_name=dlq_name,
         retry_exchange=retry_exchange,
         dlx_exchange=dlx_exchange,
+        configured=True,
+        main_queue_args={
+            "x-dead-letter-exchange": retry_exchange.name,
+            "x-dead-letter-routing-key": queue_name,
+        },
     )
 
 

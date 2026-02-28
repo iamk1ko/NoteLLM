@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import List
 
@@ -16,40 +17,22 @@ logger = get_logger(__name__)
 
 class Settings(BaseSettings):
     """Project settings.
+    简要说明关系：
+        - settings.py 是配置结构/默认值的定义（字段、类型、默认值、校验逻辑）。
+        - .env/.env.dev/.env.test 是配置值的来源（运行时的数据）。
+        - get_settings() 返回的配置值 优先级是：环境变量 > .env.{APP_ENV} > .env > settings.py 默认值。
+    所以在别处调用 get_settings() 时，如果 .env 或系统环境变量里有对应字段，会覆盖 settings.py 里默认值。
 
-    Similar to SpringBoot's application.yml + @ConfigurationProperties.
+    换句话说：
+        - settings.py 决定“有哪些配置项”
+        - .env.* 决定“这些配置项当前环境取什么值”
 
-    Env vars examples:
-      - APP_NAME=Pai-School Backend
-      - API_V1_PREFIX=/api/v1
-      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-      - BLSC_API_KEY=...
-      - BLSC_BASE_URL=https://...
-        - DATABASE_URL=mysql+pymysql://user:password@127.0.0.1:3306/pai_school?charset=utf8mb4
-        - DB_HOST=127.0.0.1
-        - DB_PORT=3306
-        - DB_NAME=pai_school
-        - DB_USER=root
-        - DB_PASSWORD=root
-        - LOG_LEVEL=INFO
-        - REDIS_URL=redis://:password@127.0.0.1:6379/0
-        - MINIO_ENDPOINT=127.0.0.1:9000
-        - MINIO_ACCESS_KEY=minioadmin
-        - MINIO_SECRET_KEY=minioadmin
-        - MINIO_SECURE=false
-        - RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
-
-    常见坑位说明（MySQL）:
-      - 如果你使用的是 MySQL 8.x，且用户认证插件是默认的 caching_sha2_password/sha256_password，
-        那么 pymysql 需要额外安装 cryptography，否则在首次连接时会报：
-        RuntimeError: 'cryptography' package is required...
-      - 两种解决思路：
-        1) 推荐：在 Python 依赖里安装 cryptography（本项目已在 pyproject.toml 中声明）。
-        2) 备选：把 MySQL 用户认证插件改成 mysql_native_password（需要 DBA 权限；不建议生产随意改）。
+    如果你要新增一个配置：
+    1) 必须在 settings.py 里加字段（否则代码根本不知道这个配置项）
+    2) 在对应的 .env.* 中填值（可选，不填就用默认值）
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         # 说明：默认 extra 行为在不同版本/配置下可能是 forbid。
@@ -57,7 +40,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    APP_NAME: str = "Pai-School Backend"
+    APP_NAME: str = "NoteLLM Backend"
     API_V1_PREFIX: str = "/api/v1"
 
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
@@ -97,6 +80,8 @@ class Settings(BaseSettings):
     MQ_RETRY_BACKOFF_SECONDS: str = "10,30,120"
     # 是否启用死信队列（DLQ）。启用后，超过重试次数的消息会被路由到 DLQ 进行后续分析/处理；禁用后，消息将被丢弃。建议生产环境启用以避免消息丢失。
     MQ_DLQ_ENABLED: bool = True
+    # 是否在启动时强制重建队列（仅建议开发环境开启）。
+    MQ_FORCE_RECREATE_QUEUES: bool = False
 
     # Vectorization settings
     EMBEDDING_DIM: int = 1024
@@ -175,4 +160,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # env = (os.getenv("APP_ENV") or "dev").strip().lower()
+    env_files = [
+        # ROOT_DIR / f".env.{env}",
+        ROOT_DIR / ".env",
+    ]
+    return Settings(_env_file=env_files)  # type: ignore[call-arg]

@@ -8,3 +8,5 @@ backend/alembic
 backend/app/tests/data
 
 docs/docker/volumes
+backend/.env
+backend/.env.*

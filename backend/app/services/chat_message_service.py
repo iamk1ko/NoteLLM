@@ -274,6 +274,15 @@ class ChatMessageService:
             await redis_memory.load_from_mysql(self.db)
 
         items, total = await redis_memory.get_messages_page(page, size)
+        if items and any(
+            item.get("id") is None
+            or item.get("session_id") is None
+            or item.get("user_id") is None
+            for item in items
+        ):
+            await redis_memory.clear_cache()
+            await redis_memory.load_from_mysql(self.db)
+            items, total = await redis_memory.get_messages_page(page, size)
         if total > 0:
             return self._coerce_message_models(items), total
 

@@ -49,12 +49,16 @@ async def _consume_loop(app: FastAPI) -> None:
             channel,
             RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
             retry_ttl_ms_list=retry_ttl_ms_list,
+            force_recreate=settings.MQ_FORCE_RECREATE_QUEUES,
+            enable_dlq=settings.MQ_DLQ_ENABLED,
         )
 
-        # 为了拿到 Queue 对象进行消费，这里再 declare 一次同名主队列。
-        # 注意：如果队列已存在，RabbitMQ 要求声明参数与已有队列一致；
-        # 因此这里不要额外传 arguments，避免与 declare_retry_topology 里带 arguments 的声明产生冲突。
-        queue = await channel.declare_queue(topology.queue_name, durable=True)
+        if not topology.configured:
+            logger.warning("队列未启用DLX配置，跳过监听：{}", topology.queue_name)
+            return
+        queue = await channel.declare_queue(
+            topology.queue_name, durable=True, arguments=topology.main_queue_args
+        )
         logger.info("聊天记忆监听器已启动，开始消费队列：{}", topology.queue_name)
 
         async with queue.iterator() as queue_iter:

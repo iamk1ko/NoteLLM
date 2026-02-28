@@ -774,3 +774,86 @@ backend/app/services/chat_message_service.py: chat_message的service层，主要
     1. 目前我不知道我使用rabbitmq服务相关的代码是否符合企业开发的最佳实践。
     2. 目前consumers文件夹中既有每个任务对应的consumer.py文件，又有为了fastapi项目启动时就启动的listener.py。我不知道那种做法比较好。因为我平时在开发java的spring boot应用时，我启动spring boot应用，通过spring提供的注解，后台其实会帮我自动启动消费者去监听消息。我对于python的fastapi项目不熟练，目前还处于学习阶段，所以不知道怎么去使用。
 
+[解决MQ启动异常]
+部分错误日志:
+2026-02-28 22:36:27 | SpawnProcess-1 | MainThread | vectorize_listener._consume_loop:89 | ERROR: 向量化监听器异常退出 
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\abc.py", line 44, in __inner
+    return await self.task
+asyncio.exceptions.CancelledError
+...
+aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'vectorize_tasks' in vhost 'admin_vhost': received the value 'vectorize_tasks.retry.exchange' of type 'longstr' but current is none
+
+2026-02-28 22:36:27 | SpawnProcess-1 | MainThread | file_merge_listener._consume_loop:84 | ERROR: 文件合并监听器异常退出 
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\abc.py", line 44, in __inner
+    return await self.task
+asyncio.exceptions.CancelledError
+...
+aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'file_tasks' in vhost 'admin_vhost': received the value 'file_tasks.retry.exchange' of type 'longstr' but current is none
+
+2026-02-28 22:36:27 | SpawnProcess-1 | MainThread | chat_memory_listener._consume_loop:70 | ERROR: 聊天记忆监听器异常退出 
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\abc.py", line 44, in __inner
+    return await self.task
+asyncio.exceptions.CancelledError
+...
+aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'chat_memory_tasks' in vhost 'admin_vhost': received none but current is the value 'chat_memory_tasks.retry.exchange' of type 'longstr'
+
+
+[优化后端项目配置文件]
+目前项目的大量配置信息位于代码"backend/app/core/settings.py"中。
+此外我还留有一份.env配置文件位于"backend/.env"中。
+
+我想知道通常企业开发中是怎么来配置项目的？推荐哪种做法？我只有java开发springboot相关的经验，通常是将各种配置信息存放在application.yaml文件中，且区分部署环境和开发环境。
+
+通常一个python web项目是怎么来管理这些配置信息的？
+
+
+[解决MQ启动异常]
+仍然有错误。
+部分错误日志如下：
+2026-02-28 23:11:42 | SpawnProcess-1 | MainThread | mq_utils.declare_retry_topology:76 | WARNING: 队列已存在且参数不一致，跳过DLX配置: queue=file_tasks, error=PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'file_tasks' in vhost 'admin_vhost': received the value 'file_tasks.retry.exchange' of type 'longstr' but current is none 
+2026-02-28 23:11:42 | SpawnProcess-1 | MainThread | file_merge_listener._consume_loop:84 | ERROR: 文件合并监听器异常退出 
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\app\consumers\file_merge_listener.py", line 67, in _consume_loop
+    queue = await channel.declare_queue(topology.queue_name, durable=True)
+...
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\channel.py", line 163, in rpc
+    raise ChannelInvalidStateError("Channel closed by RPC timeout")
+aiormq.exceptions.ChannelInvalidStateError: Channel closed by RPC timeout
+2026-02-28 23:11:43 | SpawnProcess-1 | MainThread | vectorize_listener._consume_loop:89 | ERROR: 向量化监听器异常退出 
+...
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\abc.py", line 44, in __inner
+    return await self.task
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\app\consumers\vectorize_listener.py", line 76, in _consume_loop
+    queue = await channel.declare_queue(topology.queue_name, durable=True)
+...
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\channel.py", line 410, in _on_close_frame
+    raise exc
+aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'vectorize_tasks' in vhost 'admin_vhost': received none but current is the value 'vectorize_tasks.retry.exchange' of type 'longstr'
+2026-02-28 23:11:43 | SpawnProcess-1 | MainThread | chat_memory_listener._consume_loop:70 | ERROR: 聊天记忆监听器异常退出 
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\abc.py", line 44, in __inner
+    return await self.task
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\app\consumers\chat_memory_listener.py", line 57, in _consume_loop
+    queue = await channel.declare_queue(topology.queue_name, durable=True)
+...
+  File "E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\.venv\Lib\site-packages\aiormq\channel.py", line 410, in _on_close_frame
+    raise exc
+aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange' for queue 'chat_memory_tasks' in vhost 'admin_vhost': received none but current is the value 'chat_memory_tasks.retry.exchange' of type 'longstr'
+
+[优化目前项目中mysql连接引擎]
+相关代码"backend/app/core/db.py"和"backend/main.py"
+我发现目前项目启动时，会先连接同步引擎，然后实际前端调用接口后，又会从新去连接异步引擎，有点多次一举了。我就只保留异步引擎的代码，把多余冗余的代码优化一下。

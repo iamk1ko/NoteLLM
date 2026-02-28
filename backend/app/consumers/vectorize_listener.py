@@ -37,7 +37,7 @@ logger = get_logger(__name__)
 
 
 async def _handle_message(
-        message: AbstractIncomingMessage, milvus_store: MilvusVectorStore, topology
+    message: AbstractIncomingMessage, milvus_store: MilvusVectorStore, topology
 ) -> None:
     async def handler(payload: dict[str, Any]) -> None:
         await _vectorize_task(payload, milvus_store)
@@ -70,10 +70,16 @@ async def _consume_loop(app: FastAPI) -> None:
             channel,
             RABBITMQ_QUEUE_VECTORIZE_TASKS,
             retry_ttl_ms_list=retry_ttl_ms_list,
+            force_recreate=settings.MQ_FORCE_RECREATE_QUEUES,
+            enable_dlq=settings.MQ_DLQ_ENABLED,
         )
 
-        # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
-        queue = await channel.declare_queue(topology.queue_name, durable=True)
+        if not topology.configured:
+            logger.warning("队列未启用DLX配置，跳过监听：{}", topology.queue_name)
+            return
+        queue = await channel.declare_queue(
+            topology.queue_name, durable=True, arguments=topology.main_queue_args
+        )
         logger.info("向量化监听器已启动，开始消费队列：{}", topology.queue_name)
 
         async with queue.iterator() as queue_iter:

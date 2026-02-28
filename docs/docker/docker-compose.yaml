@@ -1,8 +1,8 @@
-name: pai-school
+name: NoteLLM
 
 services:
   mysql:
-    container_name: pai_school_mysql
+    container_name: note_llm_mysql
     image: mysql:8
     restart: no
     ports:
@@ -21,7 +21,7 @@ services:
 
   redis:
     image: redislabs/redisearch
-    container_name: pai_school_redis
+    container_name: note_llm_redis
     restart: no
     ports:
       - "6379:6379"
@@ -37,7 +37,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.8-management
-    container_name: pai_school_rabbitmq
+    container_name: note_llm_rabbitmq
     restart: no
     # 节点名 rabbit@rabbitserver，不然会去容器ID
     hostname: rabbitserver
@@ -56,7 +56,7 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    container_name: pai_school_minio
+    container_name: note_llm_minio
     restart: no
     environment:
       MINIO_ACCESS_KEY: minioadmin
@@ -74,7 +74,7 @@ services:
       retries: 3
 
   etcd:
-    container_name: pai_school_etcd
+    container_name: note_llm_etcd
     image: quay.io/coreos/etcd:v3.5.16
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
@@ -92,7 +92,7 @@ services:
       retries: 3
 
   standalone:
-    container_name: pai_school_milvus
+    container_name: note_llm_milvus
     image: milvusdb/milvus:v2.5.14
     command: [ "milvus", "run", "standalone" ]
     security_opt:
@@ -119,4 +119,4 @@ services:
 
 networks:
   default:
-    name: pai_school_network
+    name: note_llm_network

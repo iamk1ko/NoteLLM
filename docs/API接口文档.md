@@ -694,7 +694,40 @@
   }
   ```
 
-#### 5.4.2 查询消息历史
+#### 5.4.2 发送消息（流式响应）
+
+- **功能说明**：在指定会话中发送消息并通过 SSE 流式接收 AI 回复
+- **请求方法**：POST
+- **URL路径**：/sessions/{session_id}/messages/stream
+- **是否需要登录**：是
+- **请求参数**：
+
+| 参数名 | 数据类型 | 是否必填 | 默认值 | 说明 |
+|--------|----------|----------|--------|------|
+| session_id | integer | 是 | 无 | 会话ID（路径参数） |
+| content | string | 是 | 无 | 消息内容 |
+| role | string | 否 | "user" | 消息角色，如 user、assistant |
+| model_name | string | 否 | null | 模型名称 |
+
+- **参数说明**：
+  - content: 用户发送的消息内容
+  - role: user / assistant / system / tool，默认 user
+  - model_name: 可选，指定使用的模型名称
+
+- **响应格式**：SSE 流式响应（text/event-stream）
+
+```
+data: {"content": "你", "done": false}
+data: {"content": "好！", "done": false}
+data: {"content": "有什么可以帮助你的吗？", "done": true}
+```
+
+- **响应字段说明**：
+  - content: 生成的文本片段
+  - done: 是否完成，true 表示流式响应结束
+  - error: 错误信息（如果有）
+
+#### 5.4.3 查询消息历史
 
 - **功能说明**：获取指定会话的消息历史记录
 - **请求方法**：GET
@@ -1420,6 +1453,29 @@
 |----|------|
 | like | 点赞 |
 | unlike | 取消点赞 |
+
+### 7.6 用户状态 (user.status)
+
+| 值 | 含义 |
+|----|------|
+| 1 | 正常/激活 |
+| 0 | 禁用 |
+
+### 7.7 用户角色 (user.role)
+
+| 值 | 含义 |
+|----|------|
+| user | 普通用户 |
+| admin | 管理员 |
+
+### 7.8 性别 (user.gender)
+
+| 值 | 含义 |
+|----|------|
+| 0 | 未知 |
+| 1 | 男性 |
+| 2 | 女性 |
+| 3 | 未指定 |
 
 ---
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from minio import Minio
 from redis.asyncio import Redis
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.vectorization import (
     DocumentParser,
@@ -16,16 +16,16 @@ from app.services.vectorization.orchestrator import VectorizationOrchestrator
 
 class VectorizationService:
     def __init__(
-            self,
-            db: Session,
-            redis_client: Redis | None = None,
-            minio_client: Minio | None = None,
-            *,
-            memory_threshold_mb: int = 32,
-            chunk_size: int = 1000,
-            overlap: int = 200,
-            vector_batch_size: int = 64,
-            vector_store: MilvusVectorStore | None = None,
+        self,
+        db: AsyncSession,
+        redis_client: Redis | None = None,
+        minio_client: Minio | None = None,
+        *,
+        memory_threshold_mb: int = 32,
+        chunk_size: int = 1000,
+        overlap: int = 200,
+        vector_batch_size: int = 64,
+        vector_store: MilvusVectorStore | None = None,
     ):
         self.db = db
         self.redis = redis_client
@@ -49,13 +49,13 @@ class VectorizationService:
         )
 
     async def vectorize_file(
-            self,
-            *,  # * 表示以下参数必须以关键字参数形式传入，不能使用位置参数
-            file_id: int,
-            file_md5: str,
-            bucket_name: str,
-            object_name: str,
-            content_type: str,
+        self,
+        *,  # * 表示以下参数必须以关键字参数形式传入，不能使用位置参数
+        file_id: int,
+        file_md5: str,
+        bucket_name: str,
+        object_name: str,
+        content_type: str,
     ) -> int:
         """
         向量化文件的主流程：

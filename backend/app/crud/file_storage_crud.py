@@ -377,6 +377,24 @@ class FileStorageCRUD:
         db.commit()
 
     @staticmethod
+    async def update_file_upload_complete_async(
+        db: AsyncSession,
+        file_id: int,
+        bucket_name: str,
+        object_name: str,
+        status: int,
+    ) -> None:
+        """异步更新文件合并后的存储信息与状态。"""
+
+        file_obj = await db.get(FileStorage, file_id)
+        if not file_obj:
+            return
+        file_obj.bucket_name = bucket_name
+        file_obj.object_name = object_name
+        file_obj.status = status
+        await db.commit()
+
+    @staticmethod
     async def get_user_file_async(
         db: AsyncSession, file_id: int, user_id: int
     ) -> FileStorage | None:

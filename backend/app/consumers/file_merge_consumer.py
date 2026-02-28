@@ -17,7 +17,7 @@ from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_FILE_TASKS,
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
 )
-from app.core.db import get_sessionmaker
+from app.core.db import get_async_sessionmaker
 
 from app.crud import FileStorageCRUD, FileChunksCRUD
 from app.models import FileStorageStatus
@@ -44,9 +44,10 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
     minio_client = get_minio_client()
     temp_bucket, final_bucket = get_file_buckets()
 
-    db = get_sessionmaker()()
+    async_session_factory = get_async_sessionmaker()
+    db = async_session_factory()
     try:
-        chunks = FileChunksCRUD.list_chunks(db, file_md5)
+        chunks = await FileChunksCRUD.list_chunks_async(db, file_md5)
         if not chunks:
             logger.warning("未找到分片记录：file_md5={}", file_md5)
             return
@@ -73,7 +74,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
         obj.close()
         obj.release_conn()
 
-        file_obj = FileStorageCRUD.get_file_by_object_name(
+        file_obj = await FileStorageCRUD.get_file_by_object_name_async(
             db, user_id, source_object_name
         )
 
@@ -82,7 +83,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
                 "MD5 校验失败：file_md5={}, actual={}", file_md5, file_md5_actual
             )
             if file_obj:
-                FileStorageCRUD.update_file_status(
+                await FileStorageCRUD.update_file_status_async(
                     db, file_id=file_obj.id, status=FileStorageStatus.FAILED.value
                 )
             # 清理 MinIO 中存储的临时分片
@@ -92,7 +93,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
 
         # 更新 file_storage 状态
         if file_obj:
-            FileStorageCRUD.update_file_upload_complete(
+            await FileStorageCRUD.update_file_upload_complete_async(
                 db,
                 file_id=file_obj.id,
                 bucket_name=final_bucket,
@@ -130,7 +131,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
         logger.info("合并完成：file_md5={}", file_md5)
     finally:
         # 删除分片记录（不管合并成功与否，都清理 DB 中的分片记录）
-        FileChunksCRUD.delete_chunks(db, file_md5)
+        await FileChunksCRUD.delete_chunks_async(db, file_md5)
 
         # 清理 Redis 中分片相关的元信息（如果有的话）
         await redis_client.delete(
@@ -140,7 +141,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
             RedisKey.FILE_STORAGE_METADATA.format(user_id, file_md5)
         )
         logger.debug("已清理临时分片数据：file_md5={}", file_md5)
-        db.close()
+        await db.close()
 
 
 async def run_file_merge_consumer() -> None:

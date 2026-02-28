@@ -215,10 +215,32 @@ class FileChunksCRUD:
         ).all()
 
     @staticmethod
+    async def list_chunks_async(
+        db: AsyncSession, file_md5: str
+    ) -> Sequence[FileChunks]:
+        """异步列出所有分片（按 chunk_index 升序）。"""
+
+        result = await db.scalars(
+            select(FileChunks)
+            .where(FileChunks.file_md5 == file_md5)
+            .order_by(FileChunks.chunk_index.asc())
+        )
+        return result.all()
+
+    @staticmethod
     def delete_chunks(db: Session, file_md5: str) -> int:
         """删除某个文件的所有分片记录。"""
 
         count = FileChunksCRUD.count_chunks(db, file_md5)
         db.query(FileChunks).filter(FileChunks.file_md5 == file_md5).delete()
         db.commit()
+        return count
+
+    @staticmethod
+    async def delete_chunks_async(db: AsyncSession, file_md5: str) -> int:
+        """异步删除某个文件的所有分片记录。"""
+
+        count = await FileChunksCRUD.count_chunks_async(db, file_md5)
+        await db.execute(delete(FileChunks).where(FileChunks.file_md5 == file_md5))
+        await db.commit()
         return count

@@ -8,7 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.consumers import start_all_listeners
 from app.core.app_state import get_app_state
-from app.core.db import Base, init_db, get_engine, close_db, get_async_sessionmaker
+from app.core.db import (
+    Base,
+    init_async_db,
+    get_async_engine,
+    close_async_db,
+    get_async_sessionmaker,
+)
 from app.core.exceptions import (
     http_exception_handler,
     unhandled_exception_handler,
@@ -35,11 +41,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("应用启动，开始初始化数据库表")
     # 显式初始化 DB（只做一次），避免模块 import 阶段就连库。
-    init_db()
-    engine = get_engine()
+    init_async_db()
+    engine = get_async_engine()
 
     # 建表：学习/演示项目可用。生产环境建议使用 Alembic 做迁移。
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     logger.info("数据库表初始化完成")
 
     # 初始化外部服务客户端（类似 Spring Bean）
@@ -77,7 +84,7 @@ async def lifespan(app: FastAPI):
             logger.exception("后台监听器退出时发生异常")
 
     # 优先按统一入口释放 DB 资源
-    close_db()
+    await close_async_db()
 
     # 关闭外部服务连接
     try:

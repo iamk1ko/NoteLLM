@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.crud.file_storage_crud import FileStorageCRUD
@@ -19,11 +19,11 @@ class VectorizationOrchestrator:
     def __init__(
         self,
         *,
-        db: Session,
+        db: AsyncSession,
         reader: MinioFileReader,
         parser: DocumentParser,
         chunker: TextChunker,
-        vector_store: MilvusVectorStore,
+        vector_store: MilvusVectorStore | None,
         task_state: TaskStateStore,
         vector_batch_size: int = 64,
     ) -> None:
@@ -175,7 +175,7 @@ class VectorizationOrchestrator:
                 )
 
             # 向量化完成，更新文件状态和任务状态
-            FileStorageCRUD.update_file_status(
+            await FileStorageCRUD.update_file_status_async(
                 self.db, file_id=file_id, status=FileStorageStatus.EMBEDDED.value
             )
             await self.task_state.set_status(file_md5, "success")
@@ -240,7 +240,7 @@ class VectorizationOrchestrator:
         else:
             await self.task_state.set_error(file_md5, str(error))
             await self.task_state.set_error_details(file_md5, None)
-        FileStorageCRUD.update_file_status(
+        await FileStorageCRUD.update_file_status_async(
             self.db, file_id=file_id, status=FileStorageStatus.FAILED.value
         )
         # 失败后不清理，保留错误信息便于排查；依赖 TTL 自动过期

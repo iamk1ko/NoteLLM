@@ -5,7 +5,7 @@ import json
 from typing import Any, cast
 
 from app.core.constants import RedisKey
-from app.core.db import get_sessionmaker
+from app.core.db import get_async_sessionmaker
 from app.core.logging import get_logger
 from app.core.minio_client import get_minio_client
 from app.core.providers import InfraProvider
@@ -21,10 +21,13 @@ from app.services.vectorization_service import VectorizationService
 logger = get_logger(__name__)
 
 
-async def _vectorize_task(payload: dict[str, Any], milvus_store: MilvusVectorStore) -> None:
+async def _vectorize_task(
+    payload: dict[str, Any], milvus_store: MilvusVectorStore
+) -> None:
     """执行单条向量化任务。"""
 
-    db = get_sessionmaker()()
+    async_session_factory = get_async_sessionmaker()
+    db = async_session_factory()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
     file_md5 = "unknown"
@@ -67,7 +70,7 @@ async def _vectorize_task(payload: dict[str, Any], milvus_store: MilvusVectorSto
     except Exception as e:
         logger.error("向量化任务消费失败：file_md5={}, error={}", file_md5, e)
     finally:
-        db.close()
+        await db.close()
 
 
 async def run_vectorize_consumer() -> None:

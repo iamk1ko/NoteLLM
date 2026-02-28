@@ -73,9 +73,11 @@ class InfraProvider:
             self.rabbitmq = None
 
         try:
-            logger.info(f"正在初始化 BGE-M3 嵌入模型: {settings.EMBEDDING_MODEL_NAME}...")
+            model_ref = settings.EMBEDDING_MODEL_PATH or settings.EMBEDDING_MODEL_NAME
+            logger.info(f"正在初始化 BGE-M3 嵌入模型: {model_ref}...")
             self.embedder = BgeM3Embedder(
                 model_name=settings.EMBEDDING_MODEL_NAME,
+                model_path=settings.EMBEDDING_MODEL_PATH or None,
                 device=settings.EMBEDDING_DEVICE,
                 use_fp16=False,
             )
@@ -98,8 +100,10 @@ class InfraProvider:
             )
             # 启动时检查/创建集合
             await self.milvus.init_collection(is_renew_collection=False)
-            logger.info("Milvus 客户端初始化完成, 详细信息如下：\n{}",
-                        self.milvus.client.describe_collection(settings.VECTOR_COLLECTION))
+            logger.info(
+                "Milvus 客户端初始化完成, 详细信息如下：\n{}",
+                self.milvus.client.describe_collection(settings.VECTOR_COLLECTION),
+            )
         except Exception as e:
             logger.error(f"初始化 Milvus 客户端失败: {e}")
             self.milvus = None

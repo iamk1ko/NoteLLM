@@ -91,6 +91,13 @@ class Settings(BaseSettings):
 
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
 
+    # MQ Retry / DLQ
+    MQ_RETRY_MAX_ATTEMPTS: int = 3
+    # RabbitMQ TTL 级别的重试间隔（秒），支持逗号分隔的多级 backoff，例如 "10,30,120" 表示第一次重试间隔 10 秒，第二次 30 秒，第三次 120 秒。超过重试次数后进入 DLQ 或丢弃。
+    MQ_RETRY_BACKOFF_SECONDS: str = "10,30,120"
+    # 是否启用死信队列（DLQ）。启用后，超过重试次数的消息会被路由到 DLQ 进行后续分析/处理；禁用后，消息将被丢弃。建议生产环境启用以避免消息丢失。
+    MQ_DLQ_ENABLED: bool = True
+
     # Vectorization settings
     EMBEDDING_DIM: int = 1024
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"

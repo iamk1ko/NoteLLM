@@ -5,7 +5,11 @@ from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.utils.mq_utils import declare_retry_topology, handle_with_retry
+from app.consumers.mq_utils import (
+    declare_retry_topology,
+    handle_with_retry,
+    normalize_backoff_seconds,
+)
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
@@ -21,12 +25,13 @@ logger = get_logger(__name__)
 
 
 async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
+    settings = get_settings()
     await handle_with_retry(
         message,
         queue_name=RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
-        handler=_update_memory,  # 实际处理函数作为参数传入。注意：handler函数只能接受payload参数!!!
+        handler=_update_memory,
         topology=topology,
-        max_retries=3,
+        max_retries=settings.MQ_RETRY_MAX_ATTEMPTS,
     )
 
 
@@ -97,8 +102,13 @@ async def run_chat_memory_consumer() -> None:
     connection = await get_rabbitmq_connection()
     channel = await connection.channel()
     try:
+        settings = get_settings()
+        backoff_seconds = normalize_backoff_seconds(settings.MQ_RETRY_BACKOFF_SECONDS)
+        retry_ttl_ms_list = [s * 1000 for s in backoff_seconds]
         topology = await declare_retry_topology(
-            channel, RABBITMQ_QUEUE_CHAT_MEMORY_TASKS, retry_ttl_ms=30000
+            channel,
+            RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
+            retry_ttl_ms_list=retry_ttl_ms_list,
         )
         # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
         queue = await channel.declare_queue(topology.queue_name, durable=True)

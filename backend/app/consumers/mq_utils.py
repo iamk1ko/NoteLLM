@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -12,19 +11,20 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+# frozen=True 使得实例不可变，增加安全性和可预测性
 @dataclass(frozen=True)
 class RetryTopology:
     """
     定义一个带重试和死信机制的 RabbitMQ 拓扑结构的数据类。
         - queue_name: 主队列名称。
-        - retry_queue_name: 重试队列名称。
+        - retry_queue_names: 重试队列名称列表（支持多级重试，每个 TTL 对应一个队列）。
         - dlq_name: 死信队列名称。
         - retry_exchange: 用于重试的交换机。
         - dlx_exchange: 用于死信的交换机。
         这个数据类封装了与重试和死信机制相关的所有信息，方便在消费者中使用。
     """
     queue_name: str
-    retry_queue_name: str
+    retry_queue_names: list[str]
     dlq_name: str
     retry_exchange: AbstractExchange
     dlx_exchange: AbstractExchange
@@ -33,7 +33,7 @@ class RetryTopology:
 async def declare_retry_topology(
         channel: AbstractChannel,
         queue_name: str,
-        retry_ttl_ms: int,
+        retry_ttl_ms_list: list[int],
 ) -> RetryTopology:
     """
     声明一个带重试和死信机制的 RabbitMQ 拓扑结构。包括：
@@ -41,12 +41,10 @@ async def declare_retry_topology(
         2. 重试交换机和重试队列：重试交换机用于接收主队列的死信，重试队列声明时指定 TTL 和死信交换机/路由键（重试到主队列）。
         3. 死信交换机和死信队列：死信交换机用于接收超过重试次数的消息，死信队列绑定到死信交换机。
 
-
-
     Args:
         channel: 已连接的 RabbitMQ 频道。
         queue_name: 主队列名称。
-        retry_ttl_ms: 重试队列中消息的 TTL（毫秒）。
+        retry_ttl_ms_list: 重试队列中消息的 TTL（毫秒）列表，每个 TTL 对应一个重试队列，支持多级重试。
     Returns:
         RetryTopology (重试拓扑) 对象，包含相关队列和交换机的信息。
     """
@@ -63,7 +61,7 @@ async def declare_retry_topology(
         durable=True,
     )
 
-    # 主队列声明时指定死信交换机/路由键：
+    # 声明主队列，指定死信交换机和路由键（重试到 retry_exchange）：
     await channel.declare_queue(
         queue_name,
         durable=True,
@@ -73,20 +71,23 @@ async def declare_retry_topology(
         },
     )
 
-    # 重试队列声明时指定 TTL 和死信交换机/路由键（重试到主队列）：
-    retry_queue_name = f"{queue_name}.retry"
-    retry_queue = await channel.declare_queue(
-        retry_queue_name,
-        durable=True,
-        arguments={
-            "x-message-ttl": retry_ttl_ms,
-            "x-dead-letter-exchange": "",
-            "x-dead-letter-routing-key": queue_name,
-        },
-    )
-    await retry_queue.bind(retry_exchange, routing_key=queue_name)
+    # 根据 retry_ttl_ms_list 声明多个重试队列，每个队列对应一个 TTL，声明时指定死信交换机和路由键（重试到主队列）：
+    retry_queue_names: list[str] = []
+    for ttl_ms in retry_ttl_ms_list:
+        retry_queue_name = f"{queue_name}.retry.{ttl_ms}"
+        retry_queue = await channel.declare_queue(
+            retry_queue_name,
+            durable=True,
+            arguments={
+                "x-message-ttl": ttl_ms,
+                "x-dead-letter-exchange": "",
+                "x-dead-letter-routing-key": queue_name,
+            },
+        )
+        await retry_queue.bind(retry_exchange, routing_key=queue_name)
+        retry_queue_names.append(retry_queue_name)
 
-    # 死信队列声明并绑定到死信交换机：
+    # 声明死信队列，并绑定到死信交换机：
     dlq_name = f"{queue_name}.dlq"
     dlq_queue = await channel.declare_queue(dlq_name, durable=True)
     await dlq_queue.bind(dlx_exchange, routing_key=queue_name)
@@ -94,7 +95,7 @@ async def declare_retry_topology(
     # 返回封装了拓扑信息的 RetryTopology 对象：
     return RetryTopology(
         queue_name=queue_name,
-        retry_queue_name=retry_queue_name,
+        retry_queue_names=retry_queue_names,
         dlq_name=dlq_name,
         retry_exchange=retry_exchange,
         dlx_exchange=dlx_exchange,
@@ -103,11 +104,16 @@ async def declare_retry_topology(
 
 def get_retry_count(message: AbstractIncomingMessage, queue_name: str) -> int:
     headers = message.headers or {}
-    x_death = headers.get("x-death")
+    x_death = headers.get("x-death") if isinstance(headers, dict) else None
     if isinstance(x_death, list):
         for entry in x_death:
-            if entry.get("queue") == queue_name:
-                return int(entry.get("count", 0))
+            if isinstance(entry, dict) and entry.get("queue") == queue_name:
+                count = entry.get("count", 0)
+                if isinstance(count, int):
+                    return count
+                if isinstance(count, str) and count.isdigit():
+                    return int(count)
+                return 0
     return 0
 
 
@@ -138,7 +144,15 @@ async def handle_with_retry(
         None
     """
     try:
+        import json
+
         payload: dict[str, Any] = json.loads(message.body.decode("utf-8"))
+    except Exception as e:
+        logger.error("消息解析失败: queue={}, error={}", queue_name, e)
+        await message.ack()
+        return
+
+    try:
         await handler(payload)
         await message.ack()
     except Exception as e:
@@ -163,3 +177,44 @@ async def handle_with_retry(
                 e,
             )
             await message.nack(requeue=False)
+
+
+def parse_backoff_seconds(value: str) -> list[int]:
+    """
+    解析重试回退时间字符串，支持逗号分隔的多个整数值。
+    示例输入："10,30,60" -> 输出：[10, 30, 60]。
+    解析流程：
+    1. 将输入字符串按逗号分割，得到一个字符串列表。
+    2. 对列表中的每个字符串进行去除空白操作，并过滤掉
+    3. 尝试将每个非空字符串转换为整数，如果转换失败则忽略该值。
+    4. 最后返回一个包含所有有效整数的列表，且只保留大于 0 的值。
+
+    Args:
+        value: 包含逗号分隔整数的字符串。
+    Returns:
+        包含有效整数的列表，且只保留大于 0 的值。
+    """
+    parts = [p.strip() for p in (value or "").split(",") if p.strip()]
+    result: list[int] = []
+    for part in parts:
+        try:
+            result.append(int(part))
+        except ValueError:
+            continue
+    return [p for p in result if p > 0]
+
+
+def normalize_backoff_seconds(value: str) -> list[int]:
+    """
+    规范化重试回退时间配置，返回一个整数列表。如果输入无效或解析结果为空，则返回默认值 [10, 30, 120]。解析重试回退时间字符串，支持逗号分隔的多个整数值。
+
+    示例输入："10,30,60" -> 输出：[10, 30, 60]。
+    解析流程：
+        1. 将输入字符串按逗号分割，得到一个字符串列表。
+        2. 对列表中的每个字符串进行去除空白操作，并过滤掉
+        3. 尝试将每个非空字符串转换为整数，如果转换失败则忽略该值。
+        4. 最后返回一个包含所有有效整数的列表，且只保留大于 0 的值。
+        5. 如果解析结果为空，则返回默认值 [10, 30, 120]。
+    """
+    seconds = parse_backoff_seconds(value)
+    return seconds or [10, 30, 120]

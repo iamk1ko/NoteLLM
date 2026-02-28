@@ -9,19 +9,25 @@ from fastapi import FastAPI
 from app.core.app_state import get_app_state
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_CHAT_MEMORY_TASKS
+from app.core.settings import get_settings
 from app.consumers.chat_memory_consumer import _update_memory
-from app.utils.mq_utils import declare_retry_topology, handle_with_retry
+from app.consumers.mq_utils import (
+    declare_retry_topology,
+    handle_with_retry,
+    normalize_backoff_seconds,
+)
 
 logger = get_logger(__name__)
 
 
 async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
+    settings = get_settings()
     await handle_with_retry(
         message,
         queue_name=RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
         handler=_update_memory,
         topology=topology,
-        max_retries=3,
+        max_retries=settings.MQ_RETRY_MAX_ATTEMPTS,
     )
 
 
@@ -36,7 +42,14 @@ async def _consume_loop(app: FastAPI) -> None:
     channel = await connection.channel()
     try:
         # 统一由 declare_retry_topology 声明：主队列(带 DLX 参数) + retry 队列 + dlq 队列 + exchange/bind
-        topology = await declare_retry_topology(channel, RABBITMQ_QUEUE_CHAT_MEMORY_TASKS, retry_ttl_ms=30000)
+        settings = get_settings()
+        backoff_seconds = normalize_backoff_seconds(settings.MQ_RETRY_BACKOFF_SECONDS)
+        retry_ttl_ms_list = [s * 1000 for s in backoff_seconds]
+        topology = await declare_retry_topology(
+            channel,
+            RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
+            retry_ttl_ms_list=retry_ttl_ms_list,
+        )
 
         # 为了拿到 Queue 对象进行消费，这里再 declare 一次同名主队列。
         # 注意：如果队列已存在，RabbitMQ 要求声明参数与已有队列一致；

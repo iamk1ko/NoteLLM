@@ -25,9 +25,14 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
+from app.core.settings import get_settings
 from app.consumers.file_merge_consumer import _merge_file
 from app.core.app_state import get_app_state
-from app.utils.mq_utils import declare_retry_topology, handle_with_retry
+from app.consumers.mq_utils import (
+    declare_retry_topology,
+    handle_with_retry,
+    normalize_backoff_seconds,
+)
 
 logger = get_logger(__name__)
 
@@ -50,7 +55,14 @@ async def _consume_loop(app: FastAPI) -> None:
     connection = infra.rabbitmq
     channel = await connection.channel()
     try:
-        topology = await declare_retry_topology(channel, RABBITMQ_QUEUE_FILE_TASKS, retry_ttl_ms=30000)
+        settings = get_settings()
+        backoff_seconds = normalize_backoff_seconds(settings.MQ_RETRY_BACKOFF_SECONDS)
+        retry_ttl_ms_list = [s * 1000 for s in backoff_seconds]
+        topology = await declare_retry_topology(
+            channel,
+            RABBITMQ_QUEUE_FILE_TASKS,
+            retry_ttl_ms_list=retry_ttl_ms_list,
+        )
         # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
         queue = await channel.declare_queue(topology.queue_name, durable=True)
         logger.info("文件合并监听器已启动，开始消费队列：{}", topology.queue_name)
@@ -84,12 +96,13 @@ async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
     async def handler(payload: dict[str, Any]) -> None:
         await _merge_file(payload["file_md5"], payload["user_id"])
 
+    settings = get_settings()
     await handle_with_retry(
         message,
         queue_name=RABBITMQ_QUEUE_FILE_TASKS,
         handler=handler,
         topology=topology,
-        max_retries=3,
+        max_retries=settings.MQ_RETRY_MAX_ATTEMPTS,
     )
 
 

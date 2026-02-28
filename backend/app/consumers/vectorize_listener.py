@@ -24,7 +24,12 @@ from fastapi import FastAPI
 from app.core.app_state import get_app_state
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
-from app.utils.mq_utils import declare_retry_topology, handle_with_retry
+from app.core.settings import get_settings
+from app.consumers.mq_utils import (
+    declare_retry_topology,
+    handle_with_retry,
+    normalize_backoff_seconds,
+)
 from app.services.vectorization.vector_store import MilvusVectorStore
 from app.consumers.vectorize_consumer import _vectorize_task
 
@@ -37,12 +42,13 @@ async def _handle_message(
     async def handler(payload: dict[str, Any]) -> None:
         await _vectorize_task(payload, milvus_store)
 
+    settings = get_settings()
     await handle_with_retry(
         message,
         queue_name=RABBITMQ_QUEUE_VECTORIZE_TASKS,
         handler=handler,
         topology=topology,
-        max_retries=3,
+        max_retries=settings.MQ_RETRY_MAX_ATTEMPTS,
     )
 
 
@@ -57,7 +63,14 @@ async def _consume_loop(app: FastAPI) -> None:
     milvus_store = infra.milvus
     channel = await connection.channel()
     try:
-        topology = await declare_retry_topology(channel, RABBITMQ_QUEUE_VECTORIZE_TASKS, retry_ttl_ms=30000)
+        settings = get_settings()
+        backoff_seconds = normalize_backoff_seconds(settings.MQ_RETRY_BACKOFF_SECONDS)
+        retry_ttl_ms_list = [s * 1000 for s in backoff_seconds]
+        topology = await declare_retry_topology(
+            channel,
+            RABBITMQ_QUEUE_VECTORIZE_TASKS,
+            retry_ttl_ms_list=retry_ttl_ms_list,
+        )
 
         # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
         queue = await channel.declare_queue(topology.queue_name, durable=True)

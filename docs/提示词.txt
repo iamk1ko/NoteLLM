@@ -857,3 +857,7 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 [优化目前项目中mysql连接引擎]
 相关代码"backend/app/core/db.py"和"backend/main.py"
 我发现目前项目启动时，会先连接同步引擎，然后实际前端调用接口后，又会从新去连接异步引擎，有点多次一举了。我就只保留异步引擎的代码，把多余冗余的代码优化一下。
+
+[项目中文的README文档创建]
+我在"docs/asset"文件夹中截图了几张NoteLLM项目的前端界面展示.png图片。
+我现在想在github的仓库中创建出展示NoteLLM项目的readme文档。有没有好的文档的结构建议，结合"docs/API接口文档.md"文档中内容，能让别人能够清晰的知道我项目的特色亮点。

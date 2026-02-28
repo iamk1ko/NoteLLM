@@ -34,9 +34,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
         case_sensitive=False,
-        # 说明：默认 extra 行为在不同版本/配置下可能是 forbid。
-        # 我们选择“显式声明需要的 env key”，比全局 ignore 更安全。
-        extra="ignore",
+        extra="ignore",  # 如果 .env 或环境变量里出现了 Settings 未声明的字段名（“多余键”），会被忽略而不是报错；
+        # 这样可以在不同环境复用同一个 .env，或留下一些暂未使用的配置项而不影响启动。
     )
 
     APP_NAME: str = "NoteLLM Backend"

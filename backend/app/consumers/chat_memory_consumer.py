@@ -11,12 +11,12 @@ from app.consumers.mq_utils import (
     normalize_backoff_seconds,
 )
 from app.core.logging import get_logger
+from app.core.minio_client import get_minio_client
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
     get_rabbitmq_connection,
 )
 from app.core.settings import get_settings
-from app.core.minio_client import get_minio_client
 from app.prompts import load_prompt
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
@@ -61,6 +61,11 @@ async def _update_memory(payload: dict[str, Any]) -> None:
             {"role": "user", "content": prompt},
         ]
     )
+
+    logger.info("(该功能目前还在测试阶段, 为后期 Agent 做准备) LLM 生成的记忆更新如下：\n"
+                "--------- 分割线 ---------\n"
+                "{}\n"
+                "-------------------------", summary_text)
 
     updates = _parse_summary_updates(summary_text)
     memory = MarkdownMemoryService(get_minio_client())

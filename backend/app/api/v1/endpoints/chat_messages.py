@@ -36,7 +36,7 @@ def get_llm_service_dep() -> LLMService:
     """LLM 服务依赖注入"""
     settings = get_settings()
     if not settings.BLSC_API_KEY or not settings.BLSC_BASE_URL:
-        raise HTTPException(status_code=500, detail="LLM not configured")
+        raise HTTPException(status_code=500, detail="LLM API 配置错误")
 
     return LLMService(
         api_key=settings.BLSC_API_KEY,

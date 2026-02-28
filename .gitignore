@@ -3,10 +3,20 @@
 .trae
 .jbeval
 
+# Python
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Virtual env
 */.venv
+
+# Project specific
 backend/alembic
 backend/app/tests/data
-
 docs/docker/volumes
 backend/.env
 backend/.env.*

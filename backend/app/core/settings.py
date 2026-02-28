@@ -115,8 +115,10 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 3
 
     # Chat Memory Config
-    # Redis 短期记忆 - 滑动窗口大小
+    # Redis 提供给 LLM 的短期记忆 - 滑动窗口大小
     REDIS_MEMORY_LIMIT: int = 10
+    # Redis 短期记忆 - TTL（秒） - 过期后自动清理，避免无限增长占用内存；同时也意味着用户的短期记忆会在一段时间不活跃后被清空。
+    REDIS_CHAT_TTL_SECONDS: int = 86400
     # Markdown 长期记忆 - 最大字符数
     MEMORY_MAX_CHARS: int = 12000
 

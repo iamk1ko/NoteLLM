@@ -15,7 +15,7 @@ from app.core.rabbitmq_client import (
 )
 from app.core.minio_client import (
     get_minio_client,
-    get_minio_buckets,
+    get_file_buckets,
     init_minio_buckets,
 )
 from app.core.logging import get_logger
@@ -134,7 +134,7 @@ class InfraProvider:
         # MinIO
         if self.minio is not None:
             try:
-                temp_bucket, _ = get_minio_buckets()
+                temp_bucket, _ = get_file_buckets()
                 results["minio"] = bool(self.minio.bucket_exists(temp_bucket))
             except Exception:
                 results["minio"] = False

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,90 +26,121 @@ class RedisChatMemory:
         self.redis = redis_client
         self.session_id = session_id
         self.memory_limit = memory_limit or settings.REDIS_MEMORY_LIMIT
+        self.ttl_seconds = settings.REDIS_CHAT_TTL_SECONDS
         self._key = RedisKey.CHAT_SESSION_MESSAGES.format(session_id)
         self._cache_flag_key = RedisKey.CHAT_SESSION_CACHE_FLAG.format(session_id)
+
+    async def _refresh_ttl(self) -> None:
+        await self.redis.expire(self._key, self.ttl_seconds)
+        await self.redis.expire(self._cache_flag_key, self.ttl_seconds)
+
+    async def has_cache(self) -> bool:
+        cached = await self.redis.get(self._cache_flag_key)
+        return bool(cached)
 
     async def get_recent_messages(self, limit: int | None = None) -> list[dict]:
         """获取最近的 N 条消息（从 Redis）"""
         count = limit or self.memory_limit
 
-        # 从 Redis 获取最近的消息
-        messages = await self.redis.lrange(self._key, 0, count - 1)
+        if count <= 0:
+            return []
+
+        # 从 Redis 获取最近的消息（按时间正序）
+        messages = await self.redis.lrange(self._key, -count, -1)
 
         if not messages:
             return []
 
+        await self._refresh_ttl()
         return [json.loads(msg) for msg in messages]
 
-    async def append_message(self, role: str, content: str) -> None:
-        """追加消息到记忆（左侧入队，实现滑动窗口）"""
-        message = {
-            "role": role,
-            "content": content,
-            "create_time": datetime.now().isoformat(),
-        }
+    async def append_message(self, message: dict) -> None:
+        """追加消息到记忆（按时间正序，右侧入队）"""
+        await self.redis.rpush(self._key, json.dumps(message, ensure_ascii=False))
+        await self.redis.set(self._cache_flag_key, "1", ex=self.ttl_seconds)
+        await self._refresh_ttl()
 
-        # 左侧入队
-        await self.redis.lpush(self._key, json.dumps(message, ensure_ascii=False))
-
-        # 维护滑动窗口大小
-        await self.redis.ltrim(self._key, 0, self.memory_limit - 1)
-
-        # 设置缓存标记
-        await self.redis.set(self._cache_flag_key, "1", ex=86400)  # 24小时过期
-
-        logger.debug("Redis 追加消息: session_id={}, role={}", self.session_id, role)
+        logger.debug(
+            "Redis 追加消息: session_id={}, role={}, msg_id={}",
+            self.session_id,
+            message.get("role"),
+            message.get("id"),
+        )
 
     async def load_from_mysql(self, db: AsyncSession) -> None:
         """从 MySQL 加载完整历史到 Redis（仅首次加载）"""
-        # 检查是否已加载
-        cached = await self.redis.get(self._cache_flag_key)
-        if cached:
+        if await self.has_cache():
             logger.debug("Redis 缓存已存在，跳过加载: session_id={}", self.session_id)
+            await self._refresh_ttl()
             return
 
-        # 从 MySQL 加载
-        messages = await ChatMessageCRUD.get_recent_messages_async(
-            db, session_id=self.session_id, limit=self.memory_limit
-        )
+        page = 1
+        size = 200
+        total_loaded = 0
 
-        # 按时间正序存储（最早的在前）
-        # Redis lpush 是最新的在前，所以我们需要反转
-        messages_list = [
-            {
-                "role": msg.role,
-                "content": msg.content,
-                "create_time": msg.create_time.isoformat() if msg.create_time else "",
-            }
-            for msg in reversed(messages)
-        ]
+        pipe = self.redis.pipeline()
+        while True:
+            messages, total = await ChatMessageCRUD.get_session_messages_async(
+                db, session_id=self.session_id, page=page, size=size
+            )
+            if not messages:
+                break
 
-        if messages_list:
-            # 批量写入 Redis
-            pipe = self.redis.pipeline()
-            for msg in messages_list:
-                await pipe.lpush(
-                    self._key, json.dumps(msg, ensure_ascii=False)
-                )  # 左侧入队
-            await pipe.ltrim(
-                self._key, 0, self.memory_limit - 1
-            )  # 维护滑动窗口大小, 删除多余的历史消息
-            await pipe.set(
-                self._cache_flag_key, "1", ex=86400
-            )  # 设置缓存标记，24小时过期
-            await pipe.execute()  # 执行批量操作
+            for msg in messages:
+                payload = {
+                    "id": msg.id,
+                    "session_id": msg.session_id,
+                    "user_id": msg.user_id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "model_name": msg.model_name,
+                    "token_count": msg.token_count,
+                    "create_time": msg.create_time.isoformat()
+                    if msg.create_time
+                    else "",
+                }
+                await pipe.rpush(self._key, json.dumps(payload, ensure_ascii=False))
+                total_loaded += 1
+
+            if total_loaded >= total:
+                break
+            page += 1
+
+        await pipe.set(self._cache_flag_key, "1", ex=self.ttl_seconds)
+        await pipe.execute()
+        await self._refresh_ttl()
 
         logger.info(
-            "从 MySQL 加载历史到 Redis: session_id={}, count={}, expires_ttl=24h",
+            "从 MySQL 加载历史到 Redis: session_id={}, count={}, expires_ttl={}s",
             self.session_id,
-            len(messages_list),
+            total_loaded,
+            self.ttl_seconds,
         )
+
+    async def get_messages_page(self, page: int, size: int) -> tuple[list[dict], int]:
+        """分页获取消息（从 Redis），返回消息列表和总数"""
+        if page < 1 or size < 1:
+            return [], 0
+        start = (page - 1) * size
+        end = start + size - 1
+
+        total = await self.redis.llen(self._key)
+        if total == 0:
+            return [], 0
+
+        messages = await self.redis.lrange(self._key, start, end)
+        await self._refresh_ttl()
+        return [json.loads(msg) for msg in messages], int(total)
 
     async def get_context_for_llm(self) -> list[dict]:
         """获取用于 LLM 上下文的对话历史"""
         messages = await self.get_recent_messages(self.memory_limit)
 
-        logger.debug("从 Redis z中加载用于 LLM 上下文的消息: session_id={}, count={}", self.session_id, len(messages))
+        logger.debug(
+            "从 Redis 中加载用于 LLM 上下文的消息: session_id={}, count={}",
+            self.session_id,
+            len(messages),
+        )
 
         # 转换为 LLM 需要的格式
         return [{"role": msg["role"], "content": msg["content"]} for msg in messages]

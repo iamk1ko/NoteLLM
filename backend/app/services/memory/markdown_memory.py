@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime
 
 from minio import Minio
 
@@ -27,7 +26,7 @@ class MarkdownMemoryService:
         return f"{MEMORY_OBJECT_PREFIX}user_{user_id}/session_{session_id}.md"
 
     async def load_memory(self, user_id: int, session_id: int) -> str:
-        """从 MinIO 加载长期记忆"""
+        """从 MinIO 加载长期记忆（全文）"""
         object_name = self._get_object_name(user_id, session_id)
 
         try:
@@ -41,7 +40,7 @@ class MarkdownMemoryService:
                 session_id,
                 len(data),
             )
-            return self._extract_memory_content(data)
+            return data
         except Exception as e:
             logger.debug(
                 "长期记忆不存在: user_id={}, session_id={}, error={}",
@@ -51,90 +50,76 @@ class MarkdownMemoryService:
             )
             return ""
 
-    def _extract_memory_content(self, content: str) -> str:
-        """从完整 markdown 文档中提取记忆内容（Role & Policies 之后的部分）"""
-        lines = content.split("\n")
-        result = []
-        capture = False
-
-        for line in lines:
-            if line.strip().startswith("# Role & Policies"):
-                capture = True
-            if capture:
-                result.append(line)
-
-        return "\n".join(result).strip()
-
-    async def append_summary(
-            self, user_id: int, session_id: int, user_message: str, ai_response: str
+    async def apply_updates(
+        self, user_id: int, session_id: int, updates: dict[str, str]
     ) -> None:
-        """追加新对话摘要到长期记忆"""
+        """合并更新长期记忆内容"""
         current_memory = await self.load_memory(user_id, session_id)
+        sections = self._parse_sections(current_memory)
 
-        new_summary = self._create_summary_entry(user_message, ai_response)
+        for key, value in updates.items():
+            if value:
+                sections[key] = self._sanitize_text(value)
 
-        updated_memory = (
-            current_memory + "\n\n" + new_summary if current_memory else new_summary
-        )
+        if not sections.get("role_policies"):
+            sections["role_policies"] = "你是一个专业的AI助手。"
+        if not sections.get("task"):
+            sections["task"] = "回答用户问题。"
+        if not sections.get("state"):
+            sections["state"] = "暂无"
+        if not sections.get("output"):
+            sections["output"] = "直接输出回答内容。"
 
-        # TODO: 目前的 markdown 结构中内容填写还有错误。
-        updated_memory = self._ensure_header(updated_memory)
-
-        # TODO：目前的截断策略比较简单，直接从头部开始截断；后续可以改进为更智能的方式，比如保留最近的 N 条摘要等
+        updated_memory = self._render_sections(sections)
         updated_memory = self._truncate_if_needed(updated_memory)
-
         await self._save_memory(user_id, session_id, updated_memory)
 
-    def _create_summary_entry(self, user_message: str, ai_response: str) -> str:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return f"""### {timestamp}
-
-**用户**: {self._escape_markdown(user_message)}
-
-**AI摘要**: {self._escape_markdown(ai_response[:200])}..."""
-
-    def _escape_markdown(self, text: str) -> str:
-        """转义 markdown 特殊字符"""
+    def _sanitize_text(self, text: str) -> str:
         if not text:
             return ""
-        text = text.replace("```", "``````")
-        text = text.replace("#", "\\#")
-        text = text.replace("*", "\\*")
-        text = text.replace("_", "\\_")
-        text = text.replace("[", "\\[")
-        text = text.replace("]", "\\]")
-        text = text.replace("(", "\\(")
-        text = text.replace(")", "\\)")
-        return text
+        return text.replace("```", "").replace("#", "").strip()
 
-    def _ensure_header(self, content: str) -> str:
-        """确保文档有正确的标题结构"""
-        if not content.startswith("# Role & Policies"):
-            header = """# Role & Policies
+    def _parse_sections(self, content: str) -> dict[str, str]:
+        sections = {
+            "role_policies": "",
+            "task": "",
+            "state": "",
+            "output": "",
+        }
+        if not content:
+            return sections
 
-你是一个专业的AI助手。
+        current = ""
+        for line in content.split("\n"):
+            header = line.strip().lower()
+            if header.startswith("# role"):
+                current = "role_policies"
+                continue
+            if header.startswith("# task"):
+                current = "task"
+                continue
+            if header.startswith("# state"):
+                current = "state"
+                continue
+            if header.startswith("# output"):
+                current = "output"
+                continue
+            if current:
+                sections[current] += line + "\n"
 
-# Task
+        return {k: v.strip() for k, v in sections.items()}
 
-回答用户问题。
-
-# State
-
-暂无
-
-# Evidence
-
-暂无
-
-# Output
-
-直接输出回答内容。
-
----
-
-"""
-            return header + content
-        return content
+    def _render_sections(self, sections: dict[str, str]) -> str:
+        return (
+            "# Role & Policies\n\n"
+            f"{sections.get('role_policies', '')}\n\n"
+            "# Task\n\n"
+            f"{sections.get('task', '')}\n\n"
+            "# State\n\n"
+            f"{sections.get('state', '')}\n\n"
+            "# Output\n\n"
+            f"{sections.get('output', '')}\n"
+        )
 
     async def _save_memory(self, user_id: int, session_id: int, content: str) -> None:
         object_name = self._get_object_name(user_id, session_id)

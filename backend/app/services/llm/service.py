@@ -47,6 +47,7 @@ class LLMService:
         langchain_messages = self._convert_messages(messages)
 
         response = await llm.ainvoke(langchain_messages)
+        # TODO: 这里还能优化，可以返回response对象，包含更多信息（如token使用量等），而不仅仅是content字符串
         return response.content
 
     async def chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:

@@ -37,7 +37,7 @@ def init_minio_buckets(minio_client: Minio) -> None:
     - 推荐在应用启动（lifespan）时执行一次。
     """
 
-    temp_bucket, final_bucket = get_minio_buckets()
+    temp_bucket, final_bucket = get_file_buckets()
     memory_bucket = get_memory_bucket()
 
     for bucket_name in (temp_bucket, final_bucket, memory_bucket):
@@ -48,7 +48,7 @@ def init_minio_buckets(minio_client: Minio) -> None:
             minio_client.make_bucket(bucket_name)
 
 
-def get_minio_buckets() -> tuple[str, str]:
+def get_file_buckets() -> tuple[str, str]:
     """获取 MinIO 临时桶与正式桶名称。"""
 
     return MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL

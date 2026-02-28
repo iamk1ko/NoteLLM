@@ -1,0 +1,33 @@
+# Role & Policies
+
+{role_policies}
+
+# Task
+
+{task}
+
+# State
+
+{state}
+
+# Evidence
+
+## RAG 检索结果
+
+```text
+{rag_context}
+```
+
+## 历史对话信息 (仅保留{history_limit}条)
+
+```text
+{history}
+```
+
+# User Input
+
+{user_message}
+
+# Output
+
+{output}

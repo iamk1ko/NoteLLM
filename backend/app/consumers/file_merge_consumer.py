@@ -9,7 +9,7 @@ from minio.commonconfig import ComposeSource
 import aio_pika
 
 from app.core.logging import get_logger
-from app.core.minio_client import get_minio_client, get_minio_buckets
+from app.core.minio_client import get_minio_client, get_file_buckets
 from app.core.redis_client import get_redis_client
 from app.core.constants import RedisKey
 from app.core.rabbitmq_client import (
@@ -42,7 +42,7 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
 
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
-    temp_bucket, final_bucket = get_minio_buckets()
+    temp_bucket, final_bucket = get_file_buckets()
 
     db = get_sessionmaker()()
     try:

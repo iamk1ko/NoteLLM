@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import MilvusField
 from app.core.logging import get_logger
 from app.core.settings import get_settings
+from app.prompts import load_prompt
 from app.crud import ChatMessageCRUD, ChatSessionCRUD
 from app.models import ChatMessage, User
 from app.schemas.chat_message import ChatMessageCreate
@@ -21,27 +22,8 @@ from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
 
-RAG_PROMPT_TEMPLATE = """# 知识库检索结果
-
-{context}
-
----
-
-# 对话历史
-
-{history}
-
----
-
-# 当前问题
-
-{question}
-
----
-
-请根据上面的知识库检索结果和对话历史，回答用户的问题。
-如果知识库中没有相关信息，请如实说明。
-"""
+SYSTEM_PROMPT = load_prompt("chat_system.txt")
+USER_PROMPT_TEMPLATE = load_prompt("chat_user.txt")
 
 
 class ChatMessageService:
@@ -84,11 +66,26 @@ class ChatMessageService:
             role="user",
             model_name=payload.model_name,
         )
+
+        await self.redis_memory_factory(session_id).append_message(
+            {
+                "id": user_message.id,
+                "session_id": user_message.session_id,
+                "user_id": user_message.user_id,
+                "role": user_message.role,
+                "content": user_message.content,
+                "model_name": user_message.model_name,
+                "token_count": user_message.token_count,
+                "create_time": user_message.create_time.isoformat()
+                if user_message.create_time
+                else "",
+            }
+        )
         logger.debug(
             "保存用户消息完成: session_id={}, user_id={}, msg_id={}",
             session_id,
             user.id,
-            user_message.id
+            user_message.id,
         )
 
         # 2. 调用 LLM 生成响应（整合 RAG）
@@ -108,13 +105,28 @@ class ChatMessageService:
             user_id=user.id,
             content=ai_response,
             role="assistant",
-            model_name="DeepSeek-V3.2",
+            model_name=get_settings().LLM_MODEL,
+        )
+
+        await self.redis_memory_factory(session_id).append_message(
+            {
+                "id": ai_message.id,
+                "session_id": ai_message.session_id,
+                "user_id": ai_message.user_id,
+                "role": ai_message.role,
+                "content": ai_message.content,
+                "model_name": ai_message.model_name,
+                "token_count": ai_message.token_count,
+                "create_time": ai_message.create_time.isoformat()
+                if ai_message.create_time
+                else "",
+            }
         )
         logger.debug(
             "保存 AI 消息完成: session_id={}, user_id={}, msg_id={}",
             session_id,
             user.id,
-            ai_message.id
+            ai_message.id,
         )
 
         total_elapsed = int((time.time() - start_time) * 1000)
@@ -137,6 +149,7 @@ class ChatMessageService:
     ) -> AsyncGenerator[str, None]:
         start_time = time.time()
 
+        # 验证会话权限
         session = await self._get_session(user, session_id)
         if not session:
             logger.warning(
@@ -155,6 +168,22 @@ class ChatMessageService:
             content=payload.content,
             role="user",
             model_name=payload.model_name,
+        )
+
+        # 将用户消息追加到 Redis 中
+        await self.redis_memory_factory(session_id).append_message(
+            {
+                "id": user_message.id,
+                "session_id": user_message.session_id,
+                "user_id": user_message.user_id,
+                "role": user_message.role,
+                "content": user_message.content,
+                "model_name": user_message.model_name,
+                "token_count": user_message.token_count,
+                "create_time": user_message.create_time.isoformat()
+                if user_message.create_time
+                else "",
+            }
         )
         logger.debug(
             "保存用户消息完成: session_id={}, user_id={}, msg_id={}",
@@ -197,7 +226,23 @@ class ChatMessageService:
                 user_id=user.id,
                 content=full_response,
                 role="assistant",
-                model_name="DeepSeek-V3.2",
+                model_name=get_settings().LLM_MODEL,
+            )
+
+            # 将 AI 消息追加到 Redis 中
+            await self.redis_memory_factory(session_id).append_message(
+                {
+                    "id": ai_message.id,
+                    "session_id": ai_message.session_id,
+                    "user_id": ai_message.user_id,
+                    "role": ai_message.role,
+                    "content": ai_message.content,
+                    "model_name": ai_message.model_name,
+                    "token_count": ai_message.token_count,
+                    "create_time": ai_message.create_time.isoformat()
+                    if ai_message.create_time
+                    else "",
+                }
             )
             total_elapsed = int((time.time() - start_time) * 1000)
             logger.info(
@@ -219,6 +264,14 @@ class ChatMessageService:
             page: int = 1,
             size: int = 20,
     ) -> tuple[Sequence[ChatMessage], int]:
+        redis_memory = self.redis_memory_factory(session_id)
+        if not await redis_memory.has_cache():
+            await redis_memory.load_from_mysql(self.db)
+
+        items, total = await redis_memory.get_messages_page(page, size)
+        if total > 0:
+            return self._coerce_message_models(items), total
+
         if user.role == "admin":
             return await ChatMessageCRUD.get_session_messages_async(
                 db=self.db, session_id=session_id, page=page, size=size
@@ -238,6 +291,15 @@ class ChatMessageService:
             self.db, session_id, user.id
         )
 
+    def _coerce_message_models(self, items: list[dict]) -> list[ChatMessage]:
+        messages: list[ChatMessage] = []
+        for item in items:
+            msg = ChatMessage()
+            for key, value in item.items():
+                setattr(msg, key, value)
+            messages.append(msg)
+        return messages
+
     async def _generate_ai_response(
             self,
             user_id: int,
@@ -246,20 +308,26 @@ class ChatMessageService:
             file_id: str | None,
     ) -> str:
         redis_memory = self.redis_memory_factory(session_id)
-        await redis_memory.load_from_mysql(self.db)  # 加载历史到 Redis，首次加载会从 MySQL 获取，后续请求会直接使用 Redis 缓存
-        history = await redis_memory.get_context_for_llm()  # 从 Redis 获取 10 条对话历史，格式化为 LLM 上下文
+        if not await redis_memory.has_cache():
+            await redis_memory.load_from_mysql(self.db)
+        history = await redis_memory.get_context_for_llm()
 
-        context = await self._rag_search(user_message, file_id)
+        evidence = await self._rag_search(user_message, file_id)
 
-        long_term_memory = await self.markdown_memory.load_memory(user_id, session_id)
+        try:
+            long_term_memory = await self.markdown_memory.load_memory(
+                user_id, session_id
+            )
+        except Exception as e:
+            logger.warning("长期记忆加载失败，降级为短期记忆: {}", e)
+            long_term_memory = ""
 
         prompt_messages = self._build_prompt(
-            user_message, context, history, long_term_memory
+            user_message, evidence, history, long_term_memory
         )
         response = await self.llm_service.chat(prompt_messages)
 
-        await redis_memory.append_message("user", user_message)
-        await redis_memory.append_message("assistant", response)
+        # Redis 已在创建消息时写入，无需重复写入
 
         asyncio.create_task(
             self._update_long_term_memory(user_id, session_id, user_message, response)
@@ -275,16 +343,22 @@ class ChatMessageService:
             file_id: str | None,
     ) -> AsyncGenerator[str, None]:
         redis_memory: RedisChatMemory = self.redis_memory_factory(session_id)
-        await redis_memory.load_from_mysql(self.db)
+        if not await redis_memory.has_cache():
+            await redis_memory.load_from_mysql(self.db)
         history = await redis_memory.get_context_for_llm()
 
-        context = await self._rag_search(user_message, file_id)
+        evidence = await self._rag_search(user_message, file_id)
 
-        long_term_memory = await self.markdown_memory.load_memory(user_id, session_id)
+        try:
+            long_term_memory = await self.markdown_memory.load_memory(
+                user_id, session_id
+            )
+        except Exception as e:
+            logger.warning("长期记忆加载失败，降级为短期记忆。错误信息: {}", e)
+            long_term_memory = ""
 
-        # TODO: 这里还有待优化，目前会把长期记忆直接拼接到 prompt 中，后续可以改为在生成过程中动态调用长期记忆接口，或者在 RAG 检索结果中加入长期记忆摘要
         prompt_messages = self._build_prompt(
-            user_message, context, history, long_term_memory
+            user_message, evidence, history, long_term_memory
         )
 
         full_response = ""
@@ -292,9 +366,7 @@ class ChatMessageService:
             full_response += token
             yield token
 
-        await redis_memory.append_message("user", user_message)
-        await redis_memory.append_message("assistant", full_response)
-
+        # TODO: 这里可以优化使用rabbitmq等消息队列来异步处理长期记忆更新，避免在主流程中创建过多的asyncio任务
         asyncio.create_task(
             self._update_long_term_memory(
                 user_id, session_id, user_message, full_response
@@ -307,10 +379,16 @@ class ChatMessageService:
 
         try:
             settings = get_settings()
-            filters = {MilvusField.FILE_ID.value: int(file_id)} if file_id.isdigit() else None
+            filters = (
+                {MilvusField.FILE_ID.value: int(file_id)} if file_id.isdigit() else None
+            )
 
             query_vector = self.embedder.encode_queries([query])["dense"][0]
-            logger.info("RAG 查询 (即用户输入) 向量化完成: query='{}', vector_dim={}", query, len(query_vector))
+            logger.info(
+                "RAG 查询 (即用户输入) 向量化完成: query='{}', vector_dim={}",
+                query,
+                len(query_vector),
+            )
 
             results = await self.milvus.search_hybrid(
                 query=query,
@@ -319,7 +397,12 @@ class ChatMessageService:
                 filters=filters,
                 alpha=settings.RAG_RANKER_ALPHA,
             )
-            logger.info("RAG 混合检索完成: query='{}', top_k={}, raw_results={}", query, settings.RAG_TOP_K, results)
+            logger.info(
+                "RAG 混合检索完成: query='{}', top_k={}, raw_results={}",
+                query,
+                settings.RAG_TOP_K,
+                results,
+            )
 
             if results:
                 context = "\n\n".join(
@@ -336,42 +419,125 @@ class ChatMessageService:
 
         return ""
 
-    async def _update_long_term_memory(
-            self, user_id: int, session_id: int, user_message: str, ai_response: str
-    ):
+    async def _update_long_term_memory(self, user_id: int, session_id: int, user_message: str, ai_response: str):
         try:
-            await self.markdown_memory.append_summary(
-                user_id, session_id, user_message, ai_response
+            prompt = load_prompt("memory_update.txt").format(
+                user_message=user_message,
+                assistant_message=ai_response,
             )
+            summary_text = await self.llm_service.chat(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ]
+            )
+            updates = self._parse_summary_updates(summary_text)
+            await self.markdown_memory.apply_updates(user_id, session_id, updates)
         except Exception as e:
             logger.error("长期记忆更新失败: {}", e)
 
     def _build_prompt(
             self,
             user_message: str,
-            context: str,
+            evidence: str,
             history: list[dict],
             long_term_memory: str,
     ) -> list[dict]:
+        """
+        构建 LLM 输入的 prompt，整合用户消息、RAG 证据、历史对话和长期记忆
+
+        Args:
+            user_message: 当前用户输入的消息内容
+            evidence: RAG 检索到的相关证据文本
+            history: 从 Redis 获取的历史对话消息列表，每条消息包含 role 和 content
+            long_term_memory: 从 Markdown 存储加载的长期记忆内容，包含角色设定、任务描述、状态信息等
+
+        Returns:
+            LLM 输入的消息列表，每条消息包含 role 和 content，按照系统提示 + 用户提示的格式构建
+        """
         history_str = ""
         if history:
+            parts: list[str] = []
             for msg in history:
-                role = "用户" if msg["role"] == "user" else "AI"
-                history_str += f"{role}: {msg['content']}\n\n"
+                role = "user" if msg["role"] == "user" else "assistant"
+                parts.append(f"**role**: {role}\n**content**: {msg['content']}")
+            history_str = "\n\n-----------------------------\n\n".join(parts)
 
-        prompt_text = RAG_PROMPT_TEMPLATE.format(
-            context=context or "（无检索结果）",
+        memory_sections = self._parse_long_term_memory(long_term_memory)
+        memory_limit = get_settings().REDIS_MEMORY_LIMIT
+        prompt_text = USER_PROMPT_TEMPLATE.format(
+            role_policies=memory_sections.get("role_policies")
+                          or "你是一个专业的AI助手。",
+            task=memory_sections.get("task") or "回答用户问题。",
+            state=memory_sections.get("state") or "暂无",
+            rag_context=evidence or "（无检索结果）",
             history=history_str or "（无历史对话）",
-            question=user_message,
+            history_limit=memory_limit,
+            user_message=user_message,
+            output=memory_sections.get("output") or "直接输出回答内容。",
         )
 
-        if long_term_memory:
-            prompt_text += f"\n\n---\n\n# 历史摘要\n\n{long_term_memory}"
-
         return [
-            {
-                "role": "system",
-                "content": "你是一个专业的AI助手，请根据提供的知识库和对话历史来回答用户的问题。",
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt_text},
         ]
+
+    def _parse_long_term_memory(self, content: str) -> dict[str, str]:
+        sections = {
+            "role_policies": "",
+            "task": "",
+            "state": "",
+            "output": "",
+        }
+        if not content:
+            return sections
+
+        current_key = ""
+        for line in content.split("\n"):
+            header = line.strip().lower()
+            if header.startswith("# role"):
+                current_key = "role_policies"
+                continue
+            if header.startswith("# task"):
+                current_key = "task"
+                continue
+            if header.startswith("# state"):
+                current_key = "state"
+                continue
+            if header.startswith("# output"):
+                current_key = "output"
+                continue
+            if current_key:
+                sections[current_key] += line + "\n"
+
+        return {k: v.strip() for k, v in sections.items()}
+
+    def _parse_summary_updates(self, content: str) -> dict[str, str]:
+        sections = {
+            "role_policies": "",
+            "task": "",
+            "state": "",
+            "output": "",
+        }
+        if not content:
+            return sections
+
+        current_key = ""
+        for line in content.split("\n"):
+            header = line.strip().lower()
+            if header.startswith("role"):
+                current_key = "role_policies"
+                continue
+            if header.startswith("task"):
+                current_key = "task"
+                continue
+            if header.startswith("state"):
+                current_key = "state"
+                continue
+            if header.startswith("output"):
+                current_key = "output"
+                continue
+            if current_key:
+                sections[current_key] += line + "\n"
+
+        return {k: v.strip() for k, v in sections.items()}

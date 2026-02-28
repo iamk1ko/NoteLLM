@@ -5,6 +5,8 @@ from typing import Sequence
 
 from pydantic import BaseModel, Field
 
+from app.core.settings import get_settings
+
 
 class ChatMessageBase(BaseModel):
     """聊天消息基础模型。
@@ -15,8 +17,8 @@ class ChatMessageBase(BaseModel):
     """
 
     content: str = Field(..., description="消息内容")
-    role: str = Field("user", description="消息角色：user/assistant/system/tool")
-    model_name: str | None = Field(None, description="使用的模型名称")
+    role: str = Field(default="user", description="消息角色：user/assistant/system/tool")
+    model_name: str | None = Field(default=get_settings().LLM_MODEL, description="使用的模型名称")
 
 
 class ChatMessageCreate(ChatMessageBase):
@@ -56,7 +58,7 @@ class ChatMessageOut(BaseModel):
     user_id: int = Field(..., description="用户ID")
     role: str = Field(..., description="消息角色：user/assistant/system/tool")
     content: str = Field(..., description="消息内容")
-    model_name: str | None = Field(None, description="使用的模型名称")
+    model_name: str | None = Field(default=get_settings().LLM_MODEL, description="使用的模型名称")
     token_count: int | None = Field(None, description="消息的Token数量")
     create_time: datetime | None = Field(None, description="创建时间")
 

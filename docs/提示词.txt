@@ -682,7 +682,83 @@ backend/app/services/chat_message_service.py: chat_message的service层，主要
 ===================
 
 [前端UI优化与改进]
+目前与LLM的聊天界面，主题是黑色背景绿色字体的命令行风格。我希望能变换一下主题。此外，目前的聊天记录展示为纯文本形式，但实际上我的聊天记录都是markdown的格式，里面有大量的"#"这样的markdown的专属语法标记。我希望该界面能够正确被渲染为markdown格式，此外提供复制等按钮。总的来说，我希望该界面能够与目前市面上主流的LLM聊天web界面那样，包含该类应用有的功能（如果需要额外增加功能，记得在"docs/API接口文档.md"中补充说明，并标记为"待实现"接口，方便后端程序员完善）。注意主题还是要符合我目前项目整体的主题风格。
 
 
 
+[优化聊天业务中处理模型记忆的流程]
+目前聊天服务的核心代码位于"backend/app/services/chat_message_service.py"中，核心方法为"_generate_ai_response_stream()"。
+主要流程为: 
+    1. 从mysql中加载部分聊天记录到redis中。`await redis_memory.load_from_mysql(self.db)`
+    2. 从redis中加载10条聊天记录作为LLM的history。`history = await redis_memory.get_context_for_llm()`
+  3. 根据用户的输入进行RAG检索作为辅佐LLM输出的context。`context = await self._rag_search(user_message, file_id)`
+  4. 从minio中加载markdown格式的LLM长期记忆文件。`long_term_memory = await self.markdown_memory.load_memory(user_id, session_id)`
+  5. 构建本次对话的prompt。`prompt_messages = self._build_prompt(user_message, context, history, long_term_memory)`
+  6. 调用LLM的api进行对话，得到流式输出内容。`async for token in self.llm_service.chat_stream(prompt_messages):`
+  7. 保存本次用户输入到redis中，保存本次llm的输出到redis中。
+  8. 异步更新长期记忆md文件到minio中。
+
+我目前发现已知的问题：
+    1.  chat_message_service中的函数`get_message_history()`每次都是从mysql中加载历史聊天记录返回给前端，没有配合上redis。获取聊天记录接口一定是用户高度使用的功能，且一定发生在调用LLM进行对话之前。所以应该优化`get_message_history()`和`_generate_ai_response_stream()`中有关于聊天记录加载的代码。
+    2. redis中存储的该用户该会话对应的总聊天记录应该有ttl，此外加载到redis中会话的总聊天记录（方便用户滑动鼠标向上翻找以往对话记录）肯定是包含了提供给LLM模型的聊天记录（方便提供给LLM获得较为完整的上下文信息，且不需要提供过多聊天记录以免上下文语义污染）。
+    3. 从minio中加载长期记忆md文件，应该具备消费降级功能，万一minio服务器宕机或者minio中md文件不存在。就直接将redis中部分的聊天记录与rag检索的结果作为本次用于调用LLM api的提示词。
+    4. 构建本次会话prompt的函数`_build_prompt(user_message, context, history, long_term_memory)`目前实现的还有点简陋。我希望优先利用minio中md文件中的内容拼接上（或是内容融合）本次的rag检索结果和用户的输入作为本次调用LLM api的提示词。md文件中的填写格式我在下方给出了，你可以进行参考，md文件中代码块的地方是需要动态填充的内容，你也可以适当优化一下格式。
+    5. 有关于代码中提示词构建的地方都需要避免硬编码，最好是单独常见一个文件或文件夹来管理不同地方所需要的提示词。
+
+我的疑问：
+    1. 常见的智能客服或对话类型的agent项目，其记忆是如何管理的？是否可以利用一个专门的markdown语法的md文件，来作为模型的记忆文件？并且通过不断维护这个md文件，来使得无状态的llm具备记忆能力。如果可行，通常如何定义这个md文件的结构。以及我上方提到的方法是否可行？
+
+长期记忆md文档格式参考如下所示：
+=============== 长期记忆md文档格式参考 ===============
+# Role & Policies
+
+你是一个专业的AI助手。
+
+# Task
+
+回答用户问题。
+
+# State
+
+暂无
+
+# Evidence
+
+## RAG 检索结果
+
+```markdown
+这里填充RAG检索的到的信息。
+检索到的信息都动态填充到这个代码块中。
+```
+
+## 历史对话信息 (仅保留10条)
+
+```markdown
+**timestamp**: 2026-02-27 00:36:51
+**user**: {派聪明有什么应用场景?}
+**assistant**: {根据知识库检索结果，“派聪明”是一个基于私有知识库的智能对话平台，它结合了大语言模型和向量检索技术，允许用户上传文档构建专属知识空间，并通过自然语言交互进行高效查询。其应用场景非常广泛，涵盖个人、企业及专业领域：
+
+\#\# 📚 个人用户场景
+
+- \*\*学习助手\*\*：学生可上传课程笔记、教材，构建个人学习知识库。
+- \*\*研究工具\*\*：整理研究论文、资料，进行跨文献的知识连接与发现。
+- \*\*创作辅助\*...}
+----------------------------- 分割线 -----------------------------
+
+**timestamp**: 2026-02-27 19:16:25
+**user**: {派聪明 RAG用户管理模块设计方案}
+**assistant**: {根据知识库检索结果，派聪明 RAG 用户管理模块的设计方案如下：
+
+\#\#\# 一、核心定位与目标
+该模块是\*\*整个系统安全性和权限控制的基础\*\*，旨在确保用户身份的安全性，并提供灵活的权限管理机制，以支持基于角色的访问控制（RBAC）和数据隔离。其核心目标包括：
+
+1. 确保用户身份的安全性。
+2. 提供灵活的权限管理机制，支持基于角色的访问控制，通过 RBAC 实现对不同角色（如普通用户和管理员）的...}
+----------------------------- 分割线 -----------------------------
+```
+
+# Output
+
+直接输出回答内容。
+=============== 长期记忆md文档格式参考 ===============
 

@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncGenerator, Sequence
-from typing import Any, Callable
+from typing import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import MilvusField
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.crud import ChatMessageCRUD, ChatSessionCRUD
@@ -15,8 +16,8 @@ from app.schemas.chat_message import ChatMessageCreate
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
+from app.services.vectorization.embedder import BgeM3Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
-from app.services.vectorization.embedder import Embedder, BgeM3Embedder
 
 logger = get_logger(__name__)
 
@@ -201,11 +202,11 @@ class ChatMessageService:
             total_elapsed = int((time.time() - start_time) * 1000)
             logger.info(
                 "流式消息成功: session_id={}, user_id={}, ai_msg_id={}, "
-                "总耗时={}, 调用LLM耗时={}, token数量={}, 相应消息总长度={}",
+                "总耗时={} s, 调用LLM耗时={}, token数量={}, 相应消息总长度={}",
                 session_id,
                 user.id,
                 ai_message.id,
-                total_elapsed,
+                total_elapsed / 1000,  # 转换为秒
                 llm_elapsed,
                 token_count,
                 len(full_response),
@@ -273,7 +274,7 @@ class ChatMessageService:
             user_message: str,
             file_id: str | None,
     ) -> AsyncGenerator[str, None]:
-        redis_memory = self.redis_memory_factory(session_id)
+        redis_memory: RedisChatMemory = self.redis_memory_factory(session_id)
         await redis_memory.load_from_mysql(self.db)
         history = await redis_memory.get_context_for_llm()
 
@@ -306,9 +307,11 @@ class ChatMessageService:
 
         try:
             settings = get_settings()
-            filters = {"file_id": int(file_id)} if file_id.isdigit() else None
+            filters = {MilvusField.FILE_ID.value: int(file_id)} if file_id.isdigit() else None
 
             query_vector = self.embedder.encode_queries([query])["dense"][0]
+            logger.info("RAG 查询 (即用户输入) 向量化完成: query='{}', vector_dim={}", query, len(query_vector))
+
             results = await self.milvus.search_hybrid(
                 query=query,
                 query_vector=query_vector,
@@ -316,6 +319,7 @@ class ChatMessageService:
                 filters=filters,
                 alpha=settings.RAG_RANKER_ALPHA,
             )
+            logger.info("RAG 混合检索完成: query='{}', top_k={}, raw_results={}", query, settings.RAG_TOP_K, results)
 
             if results:
                 context = "\n\n".join(

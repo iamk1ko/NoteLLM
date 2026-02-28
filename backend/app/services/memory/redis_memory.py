@@ -101,7 +101,7 @@ class RedisChatMemory:
             await pipe.execute()  # 执行批量操作
 
         logger.info(
-            "从 MySQL 加载历史到 Redis: session_id={}, count={}",
+            "从 MySQL 加载历史到 Redis: session_id={}, count={}, expires_ttl=24h",
             self.session_id,
             len(messages_list),
         )
@@ -109,6 +109,8 @@ class RedisChatMemory:
     async def get_context_for_llm(self) -> list[dict]:
         """获取用于 LLM 上下文的对话历史"""
         messages = await self.get_recent_messages(self.memory_limit)
+
+        logger.debug("从 Redis z中加载用于 LLM 上下文的消息: session_id={}, count={}", self.session_id, len(messages))
 
         # 转换为 LLM 需要的格式
         return [{"role": msg["role"], "content": msg["content"]} for msg in messages]

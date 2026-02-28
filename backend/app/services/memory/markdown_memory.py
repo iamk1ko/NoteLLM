@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import io
-import json
 
 from minio import Minio
 
+from app.core.constants import MinIOBucket
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 
@@ -19,7 +19,7 @@ class MarkdownMemoryService:
     def __init__(self, minio_client: Minio) -> None:
         settings = get_settings()
         self.minio = minio_client
-        self.bucket = settings.MEMORY_BUCKET
+        self.bucket = MinIOBucket.LLM_MEMORIES.value
         self.max_memory_chars = settings.MEMORY_MAX_CHARS
 
     def _get_object_name(self, user_id: int, session_id: int) -> str:
@@ -51,7 +51,7 @@ class MarkdownMemoryService:
             return ""
 
     async def apply_updates(
-        self, user_id: int, session_id: int, updates: dict[str, str]
+            self, user_id: int, session_id: int, updates: dict[str, str]
     ) -> None:
         """合并更新长期记忆内容"""
         current_memory = await self.load_memory(user_id, session_id)

@@ -21,7 +21,6 @@ from app.core.exceptions import (
     validation_exception_handler,
 )
 from app.core.logging import get_logger, setup_logging
-from app.core.middleware import TraceIdMiddleware
 from app.core.providers import InfraProvider
 from app.core.settings import get_settings
 from app.schemas.response import ApiResponse
@@ -115,7 +114,7 @@ async def db_session_middleware(request: Request, call_next):
 
 
 # TraceId 中间件
-app.add_middleware(TraceIdMiddleware)
+# app.add_middleware(TraceIdMiddleware)
 
 # CORS
 app.add_middleware(

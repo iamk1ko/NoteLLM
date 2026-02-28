@@ -3,16 +3,16 @@ from __future__ import annotations
 from typing import AsyncGenerator
 
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
+from sqlalchemy.orm import DeclarativeBase
 
-from app.core.settings import get_settings
 from app.core.logging import get_logger
+from app.core.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -36,14 +36,14 @@ _AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
 def _create_async_engine() -> AsyncEngine:
     """创建异步数据库引擎（内部函数）。"""
     settings = get_settings()
-    async_database_url = settings.async_database_url
+    async_database_url = settings.sync_database_url
     safe_url = make_url(async_database_url).render_as_string(hide_password=True)
 
     logger.info("初始化异步数据库引擎：{}", safe_url)
 
     return create_async_engine(
         async_database_url,
-        echo=settings.DB_ECHO,
+        echo=settings.DB_ECHO, # 生产环境建议关闭，开发环境可开启调试 SQL。
         future=True,
         pool_pre_ping=True,
     )

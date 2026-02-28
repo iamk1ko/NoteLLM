@@ -21,6 +21,13 @@ class RedisKey(str, Enum):
 
 
 @unique
+class MinIOBucket(str, Enum):
+    FILE_UPLOAD_TEMP = "upload-temp"  # 临时桶：用于分片上传和存储中间文件
+    FILE_STORAGE = "file-storage"  # 正式桶：用于存储最终文件
+    LLM_MEMORIES = "llm-memories"  # 聊天记忆桶：用于存储 Markdown 对话记忆
+
+
+@unique
 class MilvusField(str, Enum):
     PK = "pk"
     FILE_ID = "file_id"

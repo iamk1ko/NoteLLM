@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-import os
 from pathlib import Path
 from typing import List
 
-from app.core.logging import get_logger
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.logging import get_logger
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -16,7 +15,7 @@ logger = get_logger(__name__)
 
 
 class Settings(BaseSettings):
-    """Project settings.
+    """项目的默认配置。
     简要说明关系：
         - settings.py 是配置结构/默认值的定义（字段、类型、默认值、校验逻辑）。
         - .env/.env.dev/.env.test 是配置值的来源（运行时的数据）。
@@ -45,14 +44,18 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # LLM 配置
     BLSC_API_KEY: str | None = None
     BLSC_BASE_URL: str | None = None
     LLM_MODEL: str = "DeepSeek-V3.2"
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
 
-    # Chat Memory - MinIO Bucket
-    MEMORY_BUCKET: str = "chat-memories"
+    # MinIO 配置
+    MINIO_ENDPOINT: str = "127.0.0.1:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_SECURE: bool = False
 
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
@@ -60,17 +63,13 @@ class Settings(BaseSettings):
     DB_USER: str = "root"
     DB_PASSWORD: str = "root"
     DATABASE_URL: str = ""
-    DB_ECHO: bool = False
+    DB_DRIVER: str = "mysql+aiomysql"
+    DB_ECHO: bool = False  # SQLAlchemy 是否输出执行的 SQL 语句到日志，生产环境建议关闭，开发环境可开启调试 SQL。
 
-    LOG_LEVEL: str = "DEBUG"
+    LOG_LEVEL: str = "INFO"
 
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_MAX_CONNECTIONS: int = 20
-
-    MINIO_ENDPOINT: str = "127.0.0.1:9000"
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin"
-    MINIO_SECURE: bool = False
 
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
 
@@ -86,6 +85,8 @@ class Settings(BaseSettings):
     # Vectorization settings
     EMBEDDING_DIM: int = 1024
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
+    # 可选：本地模型路径（优先使用本地路径，避免启动时拉取）
+    EMBEDDING_MODEL_PATH: str = ""
     EMBEDDING_DEVICE: str = "cpu"
 
     VECTOR_COLLECTION: str = "knowledge_base"
@@ -129,18 +130,9 @@ class Settings(BaseSettings):
         if self.DATABASE_URL:
             return self.DATABASE_URL
         return (
-            f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"{self.DB_DRIVER}://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
         )
-
-    @computed_field
-    @property
-    def async_database_url(self) -> str:
-        """获取异步数据库连接字符串 (mysql+aiomysql)。"""
-        # 如果环境变量里显式配了 async url (e.g. ASYNC_DATABASE_URL)，这里也可以读
-        # 目前简单起见，直接替换 driver
-        sync_url = self.sync_database_url
-        return sync_url.replace("mysql+pymysql", "mysql+aiomysql")
 
     @model_validator(mode="after")
     def _build_milvus_uri(self) -> "Settings":
@@ -150,6 +142,7 @@ class Settings(BaseSettings):
         return self
 
     def cors_origins_list(self) -> List[str]:
+        # 解析 CORS_ORIGINS 字符串为列表，支持逗号分隔和通配符
         raw = (self.CORS_ORIGINS or "").strip()
         if not raw:
             return []

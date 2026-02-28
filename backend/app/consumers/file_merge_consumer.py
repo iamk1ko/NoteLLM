@@ -5,20 +5,19 @@ import hashlib
 import json
 from typing import Any, cast
 
-from minio.commonconfig import ComposeSource
 import aio_pika
+from minio.commonconfig import ComposeSource
 
+from app.core.constants import RedisKey, MinIOBucket
+from app.core.db import get_async_sessionmaker
 from app.core.logging import get_logger
-from app.core.minio_client import get_minio_client, get_file_buckets
-from app.core.redis_client import get_redis_client
-from app.core.constants import RedisKey
+from app.core.minio_client import get_minio_client
 from app.core.rabbitmq_client import (
     get_rabbitmq_connection,
     RABBITMQ_QUEUE_FILE_TASKS,
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
 )
-from app.core.db import get_async_sessionmaker
-
+from app.core.redis_client import get_redis_client
 from app.crud import FileStorageCRUD, FileChunksCRUD
 from app.models import FileStorageStatus
 
@@ -42,7 +41,8 @@ async def _merge_file(file_md5: str, user_id: int) -> None:
 
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
-    temp_bucket, final_bucket = get_file_buckets()
+    temp_bucket = MinIOBucket.FILE_UPLOAD_TEMP.value
+    final_bucket = MinIOBucket.FILE_STORAGE.value
 
     async_session_factory = get_async_sessionmaker()
     db = async_session_factory()

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import or_, select, func
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.users import User
@@ -18,49 +17,10 @@ class UserCRUD:
     """
 
     @staticmethod
-    def list_users(db: Session) -> Sequence[User]:
-        """查询所有用户（不分页，适合小数据量）。"""
-
-        return db.scalars(select(User).order_by(User.id)).all()
-
-    @staticmethod
     async def list_users_async(db: AsyncSession) -> Sequence[User]:
         """异步查询所有用户（不分页）。"""
         result = await db.scalars(select(User).order_by(User.id))
         return result.all()
-
-    @staticmethod
-    def list_users_page(
-        db: Session,
-        page: int,
-        size: int,
-        keyword: str | None = None,
-    ) -> tuple[Sequence[User], int]:
-        """分页查询用户，并返回总数量。
-
-        说明：
-        - keyword 为空则查询全部
-        - keyword 模糊匹配 username/name/phone/email
-        """
-
-        stmt = select(User)
-        count_stmt = select(func.count(User.id))
-        if keyword:
-            like = f"%{keyword}%"
-            condition = or_(
-                User.username.like(like),
-                User.name.like(like),
-                User.phone.like(like),
-                User.email.like(like),
-            )
-            stmt = stmt.where(condition)
-            count_stmt = count_stmt.where(condition)
-
-        total = db.scalar(count_stmt) or 0
-        items = db.scalars(
-            stmt.order_by(User.id).offset((page - 1) * size).limit(size)
-        ).all()
-        return items, total
 
     @staticmethod
     async def list_users_page_async(
@@ -93,12 +53,6 @@ class UserCRUD:
         return items, total
 
     @staticmethod
-    def get_user_by_id(db: Session, user_id: int) -> User | None:
-        """根据 ID 获取用户。"""
-
-        return db.get(User, user_id)
-
-    @staticmethod
     async def get_user_by_id_async(db: AsyncSession, user_id: int) -> User | None:
         """异步根据 ID 获取用户。"""
         return await db.get(User, user_id)
@@ -118,29 +72,11 @@ class UserCRUD:
         return await db.scalar(select(User).where(User.email == email))
 
     @staticmethod
-    def create_user(db: Session, user: User) -> User:
-        """创建用户。"""
-
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
-
-    @staticmethod
     async def create_user_async(db: AsyncSession, user: User) -> User:
         """异步创建用户。"""
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        return user
-
-    @staticmethod
-    def update_user(db: Session, user: User) -> User:
-        """更新用户。"""
-
-        db.add(user)
-        db.commit()
-        db.refresh(user)
         return user
 
     @staticmethod
@@ -150,13 +86,6 @@ class UserCRUD:
         await db.commit()
         await db.refresh(user)
         return user
-
-    @staticmethod
-    def delete_user(db: Session, user: User) -> None:
-        """删除用户。"""
-
-        db.delete(user)
-        db.commit()
 
     @staticmethod
     async def delete_user_async(db: AsyncSession, user: User) -> None:

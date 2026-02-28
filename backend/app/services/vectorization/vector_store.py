@@ -36,14 +36,14 @@ FILE_MD5_MAX_LENGTH = (
 
 class MilvusVectorStore:
     def __init__(
-            self,
-            *,
-            uri: str,
-            collection_name: str,
-            dim: int = 1024,
-            metric_type: str = "COSINE",
-            alias: str = "default",
-            embedder: Embedder | None = None,
+        self,
+        *,
+        uri: str,
+        collection_name: str,
+        dim: int = 1024,
+        metric_type: str = "COSINE",
+        alias: str = "default",
+        embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -113,9 +113,11 @@ class MilvusVectorStore:
             return self.embedder  # 如果已经有了，就直接用
 
         settings = get_settings()
-        logger.info(f"正在初始化 BGE-M3 嵌入模型: {settings.EMBEDDING_MODEL_NAME}...")
+        model_ref = settings.EMBEDDING_MODEL_PATH or settings.EMBEDDING_MODEL_NAME
+        logger.info(f"正在初始化 BGE-M3 嵌入模型: {model_ref}...")
         embedder = BgeM3Embedder(
             model_name=settings.EMBEDDING_MODEL_NAME,
+            model_path=settings.EMBEDDING_MODEL_PATH or None,
             device=settings.EMBEDDING_DEVICE,
             use_fp16=False,
         )
@@ -440,7 +442,7 @@ class MilvusVectorStore:
             batch_size = get_settings().VS_BATCH_SIZE
             total_inserted = 0
             for i in range(0, len(entities), batch_size):
-                batch = entities[i: i + batch_size]
+                batch = entities[i : i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -543,11 +545,11 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-            self,
-            *,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query_vector: list[float],
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -593,11 +595,11 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-            self,
-            *,
-            query: str,
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query: str,
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -643,13 +645,13 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-            self,
-            *,
-            query: str,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
-            alpha: float = 0.7,
+        self,
+        *,
+        query: str,
+        query_vector: list[float],
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
+        alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         logger.info(f"混合检索开始，alpha={alpha}, top_k={k}")
@@ -666,7 +668,9 @@ class MilvusVectorStore:
             self._merge_hybrid_result(merged, result, "dense")
         for result in bm25_results:
             self._merge_hybrid_result(merged, result, "bm25")
-        logger.debug("[自定义的合并方法] 混合检索结果合并完成，准备计算融合分数和排序...")
+        logger.debug(
+            "[自定义的合并方法] 混合检索结果合并完成，准备计算融合分数和排序..."
+        )
 
         reranked: list[dict[str, Any]] = []
         for entry in merged.values():
@@ -677,7 +681,9 @@ class MilvusVectorStore:
             item = dict(entry.get("result") or {})
             item["score"] = score
             reranked.append(item)
-        reranked.sort(key=lambda item_: float(item.get("score", 0.0) or 0.0), reverse=True)
+        reranked.sort(
+            key=lambda item_: float(item.get("score", 0.0) or 0.0), reverse=True
+        )
         logger.debug("[自定义的重排序方法] 混合检索结果重排序完成，准备截取 Top-k...")
 
         final_results = reranked[:k]
@@ -688,9 +694,9 @@ class MilvusVectorStore:
 
     @staticmethod
     def _merge_hybrid_result(
-            merged: dict[str, dict[str, Any]],
-            result: Dict[str, Any],
-            score_key: str,
+        merged: dict[str, dict[str, Any]],
+        result: Dict[str, Any],
+        score_key: str,
     ) -> None:
         """
         将单个检索结果合并到混合结果中，更新对应的分数
@@ -722,7 +728,9 @@ class MilvusVectorStore:
         meta = result.get(MilvusField.METADATA.value, {}) or {}
         file_id = meta.get(MilvusField.FILE_ID.value)
         chunk_index = meta.get(MilvusField.CHUNK_INDEX.value)
-        key = f"{file_id}:{chunk_index}" if file_id is not None else str(result.get("id"))
+        key = (
+            f"{file_id}:{chunk_index}" if file_id is not None else str(result.get("id"))
+        )
 
         entry = merged.get(key)
         if entry is None:
@@ -762,13 +770,25 @@ class MilvusVectorStore:
                     "score": hit.get("distance") if isinstance(hit, dict) else None,
                     "text": entity.get(MilvusField.CONTENT.value),
                     MilvusField.METADATA.value: {
-                        MilvusField.FILE_ID.value: entity.get(MilvusField.FILE_ID.value),
-                        MilvusField.FILE_MD5.value: entity.get(MilvusField.FILE_MD5.value),
-                        MilvusField.CHUNK_INDEX.value: entity.get(MilvusField.CHUNK_INDEX.value),
-                        MilvusField.PAGE_NO.value: entity.get(MilvusField.PAGE_NO.value),
-                        MilvusField.SECTION.value: entity.get(MilvusField.SECTION.value),
+                        MilvusField.FILE_ID.value: entity.get(
+                            MilvusField.FILE_ID.value
+                        ),
+                        MilvusField.FILE_MD5.value: entity.get(
+                            MilvusField.FILE_MD5.value
+                        ),
+                        MilvusField.CHUNK_INDEX.value: entity.get(
+                            MilvusField.CHUNK_INDEX.value
+                        ),
+                        MilvusField.PAGE_NO.value: entity.get(
+                            MilvusField.PAGE_NO.value
+                        ),
+                        MilvusField.SECTION.value: entity.get(
+                            MilvusField.SECTION.value
+                        ),
                         # MilvusField.CONTENT.value: entity.get(MilvusField.CONTENT.value), # 和上方的 "text" 字段重复了，这里就不放在 metadata 里了
-                        MilvusField.METADATA.value: entity.get(MilvusField.METADATA.value),
+                        MilvusField.METADATA.value: entity.get(
+                            MilvusField.METADATA.value
+                        ),
                     },
                 }
                 formatted_results.append(result)

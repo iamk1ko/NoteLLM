@@ -1,27 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
 from typing import cast, Any
+
 from aio_pika.abc import AbstractRobustConnection
 from minio import Minio
 from redis.asyncio import Redis
 
-from app.core.redis_client import get_redis_client
+from app.core.constants import MinIOBucket
+from app.core.logging import get_logger
+from app.core.minio_client import (
+    get_minio_client,
+    init_minio_buckets,
+)
 from app.core.rabbitmq_client import (
     get_rabbitmq_connection,
     close_rabbitmq,
     RABBITMQ_QUEUE_FILE_TASKS,
 )
-from app.core.minio_client import (
-    get_minio_client,
-    get_file_buckets,
-    init_minio_buckets,
-)
-from app.core.logging import get_logger
+from app.core.redis_client import get_redis_client
+from app.core.settings import get_settings
 from app.services.vectorization import BgeM3Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
-from app.core.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -138,8 +138,7 @@ class InfraProvider:
         # MinIO
         if self.minio is not None:
             try:
-                temp_bucket, _ = get_file_buckets()
-                results["minio"] = bool(self.minio.bucket_exists(temp_bucket))
+                results["minio"] = bool(self.minio.bucket_exists(MinIOBucket.FILE_UPLOAD_TEMP.value))
             except Exception:
                 results["minio"] = False
 

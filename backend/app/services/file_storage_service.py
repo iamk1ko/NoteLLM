@@ -9,10 +9,9 @@ from minio import Minio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import RedisKey, MinIOBucket
 from app.core.logging import get_logger
-from app.core.minio_client import MINIO_BUCKET_TEMP, MINIO_BUCKET_FINAL
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
-from app.core.constants import RedisKey
 from app.crud import FileChunksCRUD, FileStorageCRUD
 from app.models import FileChunksStatus, FileStorageStatus
 from app.models import FileStorage, User
@@ -26,14 +25,14 @@ logger = get_logger(__name__)
 
 
 async def _put_object_with_retry(
-    *,
-    minio_client: Minio,
-    temp_bucket: str,
-    chunk_object_name: str,
-    payload,
-    file_obj,
-    length: int,
-    max_retries: int = 3,
+        *,
+        minio_client: Minio,
+        temp_bucket: str,
+        chunk_object_name: str,
+        payload,
+        file_obj,
+        length: int,
+        max_retries: int = 3,
 ) -> tuple[str | None, int]:
     """
     上传文件分片到 MinIO。
@@ -104,11 +103,11 @@ class FileStorageService:
     """
 
     def __init__(
-        self,
-        db: AsyncSession,
-        redis_client: Redis | None = None,
-        minio_client: Minio | None = None,
-        rabbitmq_channel: AbstractChannel | None = None,
+            self,
+            db: AsyncSession,
+            redis_client: Redis | None = None,
+            minio_client: Minio | None = None,
+            rabbitmq_channel: AbstractChannel | None = None,
     ):
         """初始化文件服务。
 
@@ -123,10 +122,10 @@ class FileStorageService:
         self.rabbitmq_channel = rabbitmq_channel
 
     async def save_file_metadata(
-        self,
-        user: User,
-        payload: FileSaveDTO,
-        bucket_name: str,
+            self,
+            user: User,
+            payload: FileSaveDTO,
+            bucket_name: str,
     ) -> FileStorage:
         """
         保存文件元数据到数据库。
@@ -164,10 +163,10 @@ class FileStorageService:
         )
 
     async def upload_chunk(
-        self,
-        user: User,
-        payload: FileChunkUploadIn,
-        file_chunk,
+            self,
+            user: User,
+            payload: FileChunkUploadIn,
+            file_chunk,
     ) -> dict:
         """上传分片（业务逻辑占位）。"""
 
@@ -180,7 +179,7 @@ class FileStorageService:
 
         # 0) 重试计数 key
         # 仅当不存在时创建，避免重复
-        temp_bucket = MINIO_BUCKET_TEMP
+        temp_bucket = MinIOBucket.FILE_UPLOAD_TEMP.value
 
         bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(
             user.id, payload.file_md5
@@ -196,8 +195,8 @@ class FileStorageService:
         if self.redis is not None:
             redis_client = cast(Any, self.redis)
             has_redis_task = (
-                await redis_client.hget(file_storage_meta_key, "status")
-            ) is not None
+                                 await redis_client.hget(file_storage_meta_key, "status")
+                             ) is not None
 
         # 满足以下任一条件才查 DB：
         # 1) Redis 表示已有任务：需要确认 DB 记录真实存在（防脏数据）

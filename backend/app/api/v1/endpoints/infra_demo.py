@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
 from aio_pika.abc import AbstractChannel
+from fastapi import APIRouter, Depends
 from minio import Minio
 from redis.asyncio import Redis
 
+from app.core.constants import MinIOBucket
+from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
 from app.dependencies.infra import (
     get_minio,
     get_redis,
     get_rabbitmq_channel,
 )
-from app.core.minio_client import MINIO_BUCKET_TEMP
-from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
 from app.schemas.response import ApiResponse
 
 router = APIRouter(tags=["infra_demo"])
@@ -34,7 +34,7 @@ async def infra_demo(
     redis_ok = await redis_client.ping()
 
     # MinIO: 查询桶是否存在（不创建）
-    temp_bucket_exists = minio_client.bucket_exists(MINIO_BUCKET_TEMP)
+    temp_bucket_exists = minio_client.bucket_exists(MinIOBucket.FILE_UPLOAD_TEMP.value)
 
     # RabbitMQ: 声明一个测试队列（不发送消息）
     await rabbit_channel.declare_queue(RABBITMQ_QUEUE_FILE_TASKS, durable=True)

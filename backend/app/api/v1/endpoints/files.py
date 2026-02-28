@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, cast
 from datetime import timedelta
+from typing import Any, cast
 
+from aio_pika import Message
+from aio_pika.abc import AbstractChannel
 from fastapi import (
     APIRouter,
     Depends,
@@ -14,10 +16,21 @@ from fastapi import (
     File,
     Form,
 )
+from minio import Minio
+from pydantic import BaseModel, Field
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
-from aio_pika import Message
 
+from app.core.constants import RedisKey
 from app.core.db import get_async_db
+from app.core.logging import get_logger
+from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
+from app.crud import (
+    FileStorageCRUD,
+    ChatSessionFileCRUD,
+    ChatSessionCRUD,
+    ChatMessageCRUD,
+)
 from app.dependencies import (
     get_current_user,
     get_redis,
@@ -25,30 +38,16 @@ from app.dependencies import (
     get_rabbitmq_channel,
     get_milvus,
 )
+from app.models import User, FileStorageStatus
 from app.schemas.file_storage import (
     FileListResponse,
     FileStorageOut,
     FileChunkUploadIn,
 )
-from app.core.constants import RedisKey
-from app.core.constants import RedisKey
-from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
-from pydantic import BaseModel, Field
-from app.core.logging import get_logger
-from app.services.file_cleanup_service import FileCleanupService
 from app.schemas.response import ApiResponse
-from app.services import FileStorageService, MilvusVectorStore
-from app.crud import (
-    FileStorageCRUD,
-    ChatSessionFileCRUD,
-    ChatSessionCRUD,
-    ChatMessageCRUD,
-)
-from app.models import User, FileStorageStatus
+from app.services import FileStorageService
+from app.services.file_cleanup_service import FileCleanupService
 from app.services.vectorization.vector_store import MilvusVectorStore
-from aio_pika.abc import AbstractChannel
-from minio import Minio
-from redis.asyncio import Redis
 
 router = APIRouter(tags=["files"])
 logger = get_logger(__name__)
@@ -66,12 +65,12 @@ class FileExistsResponse(BaseModel):
 
 @router.post("/files", response_model=ApiResponse[dict])
 async def upload_file_simple(
-    file: UploadFile = File(..., description="上传文件"),
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    redis_client: Redis = Depends(get_redis),
-    minio_client: Minio = Depends(get_minio),
-    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+        file: UploadFile = File(..., description="上传文件"),
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        redis_client: Redis = Depends(get_redis),
+        minio_client: Minio = Depends(get_minio),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut | dict[str, Any]]:
     """简单单文件上传接口（适配前端直接上传）。
 
@@ -167,9 +166,9 @@ async def upload_file_simple(
 
 @router.get("/files/check", response_model=ApiResponse[FileExistsResponse])
 async def check_file_exists(
-    file_md5: str = Query(..., description="文件MD5"),
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        file_md5: str = Query(..., description="文件MD5"),
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileExistsResponse]:
     """检查文件是否已存在（用户内去重）。"""
 
@@ -209,20 +208,20 @@ async def check_file_exists(
 
 @router.post("/files/upload/chunk", response_model=ApiResponse[dict])
 async def upload_chunk(
-    file_md5: str = Form(..., description="文件MD5"),
-    chunk_index: int = Form(..., description="分片索引，从0开始"),
-    total_chunks: int = Form(..., description="总分片数"),
-    chunk_size: int = Form(..., description="当前分片大小（字节）"),
-    total_size: int = Form(..., description="文件总大小（字节）"),
-    file_name: str = Form(..., description="文件名称"),
-    content_type: str = Form(..., description="文件MIME类型"),
-    is_public: bool = Form(False, description="是否为公共文件"),
-    file_chunk: UploadFile = File(..., description="分片文件本体"),
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    redis_client: Redis = Depends(get_redis),
-    minio_client: Minio = Depends(get_minio),
-    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+        file_md5: str = Form(..., description="文件MD5"),
+        chunk_index: int = Form(..., description="分片索引，从0开始"),
+        total_chunks: int = Form(..., description="总分片数"),
+        chunk_size: int = Form(..., description="当前分片大小（字节）"),
+        total_size: int = Form(..., description="文件总大小（字节）"),
+        file_name: str = Form(..., description="文件名称"),
+        content_type: str = Form(..., description="文件MIME类型"),
+        is_public: bool = Form(False, description="是否为公共文件"),
+        file_chunk: UploadFile = File(..., description="分片文件本体"),
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        redis_client: Redis = Depends(get_redis),
+        minio_client: Minio = Depends(get_minio),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[dict]:
     """分片上传接口。
 
@@ -288,12 +287,12 @@ async def upload_chunk(
     "/files/upload/is_complete/{file_id}", response_model=ApiResponse[FileStorageOut]
 )
 async def upload_is_complete(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    redis_client: Redis = Depends(get_redis),
-    minio_client: Minio = Depends(get_minio),
-    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        redis_client: Redis = Depends(get_redis),
+        minio_client: Minio = Depends(get_minio),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[FileStorageOut]:
     """TODO: 检查完整文件是否已经完成上传并合并。即数据库中文件状态为 `FileStorageStatus.UPLOADED.value` (目前仅是初步设计，还需完善)。"""
 
@@ -328,14 +327,14 @@ async def upload_is_complete(
 
 @router.get("/files", response_model=ApiResponse[FileListResponse])
 async def list_files(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    include_public: bool = Query(True, description="是否包含公共文件"),
-    keyword: str | None = Query(None, description="文件名搜索关键词"),
-    status: int | None = Query(None, description="文件状态"),
-    content_type: str | None = Query(None, description="文件MIME类型"),
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        include_public: bool = Query(True, description="是否包含公共文件"),
+        keyword: str | None = Query(None, description="文件名搜索关键词"),
+        status: int | None = Query(None, description="文件状态"),
+        content_type: str | None = Query(None, description="文件MIME类型"),
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[FileListResponse]:
     """查询知识库文件列表（分页）。"""
 
@@ -370,9 +369,9 @@ async def list_files(
 
 @router.get("/files/{file_id}", response_model=ApiResponse[dict])
 async def get_file_detail(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """获取文件详情。"""
 
@@ -423,10 +422,10 @@ async def get_file_detail(
 
 @router.get("/files/{file_id}/preview", response_model=ApiResponse[dict])
 async def get_file_preview(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    minio_client: Minio = Depends(get_minio),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        minio_client: Minio = Depends(get_minio),
 ) -> ApiResponse[dict]:
     """获取文件预览地址（MinIO Presigned URL）。"""
 
@@ -461,9 +460,9 @@ async def get_file_preview(
 
 @router.get("/files/public", response_model=ApiResponse[FileListResponse])
 async def list_public_files(
-    page: int = Query(1, ge=1, description="页码，从 1 开始"),
-    size: int = Query(10, ge=1, le=100, description="每页数量"),
-    db: AsyncSession = Depends(get_async_db),
+        page: int = Query(1, ge=1, description="页码，从 1 开始"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        db: AsyncSession = Depends(get_async_db),
 ) -> ApiResponse[FileListResponse]:
     """查询公共文件列表（分页）。"""
 
@@ -481,10 +480,10 @@ async def list_public_files(
 
 @router.delete("/files/{file_id}", response_model=ApiResponse[dict])
 async def delete_file(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    milvus: MilvusVectorStore = Depends(get_milvus),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        milvus: MilvusVectorStore = Depends(get_milvus),
 ) -> ApiResponse[dict]:
     """删除文件（硬删除：MinIO/Redis/Milvus/MySQL）。"""
 
@@ -560,10 +559,10 @@ async def delete_file(
 
 @router.post("/files/{file_id}/re-vectorize", response_model=ApiResponse[dict])
 async def re_vectorize_file(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[dict]:
     """重新向量化文件。
 
@@ -584,9 +583,9 @@ async def re_vectorize_file(
 
 @router.get("/files/{file_id}/status", response_model=ApiResponse[dict])
 async def get_file_status(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
 ) -> ApiResponse[dict]:
     """获取文件状态与上传进度。"""
 
@@ -635,10 +634,10 @@ async def get_file_status(
 
 @router.post("/files/{file_id}/retry", response_model=ApiResponse[dict])
 async def retry_vectorize_file(
-    file_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    current_user: User = Depends(get_current_user),
-    rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
+        file_id: int,
+        db: AsyncSession = Depends(get_async_db),
+        current_user: User = Depends(get_current_user),
+        rabbit_channel: AbstractChannel = Depends(get_rabbitmq_channel),
 ) -> ApiResponse[dict]:
     """重试向量化（失败状态专用）。"""
 
@@ -652,11 +651,11 @@ async def retry_vectorize_file(
 
 
 async def _retry_vectorize(
-    *,
-    file_id: int,
-    db: AsyncSession,
-    current_user: User,
-    rabbit_channel: AbstractChannel,
+        *,
+        file_id: int,
+        db: AsyncSession,
+        current_user: User,
+        rabbit_channel: AbstractChannel,
 ) -> dict:
     file_obj = await FileStorageCRUD.get_file_by_id_async(db, file_id)
     if not file_obj:

@@ -15,9 +15,17 @@ class Embedder(Protocol):
 
 
 class BgeM3Embedder:
-    def __init__(self, *, model_name: str, device: str, use_fp16: bool) -> None:
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        device: str,
+        use_fp16: bool,
+        model_path: str | None = None,
+    ) -> None:
+        resolved_name = model_path or model_name
         self._model = BGEM3EmbeddingFunction(
-            model_name=model_name,
+            model_name=resolved_name,
             device=device,
             use_fp16=use_fp16,
         )

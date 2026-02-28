@@ -10,8 +10,8 @@ from redis.asyncio import Redis
 from app.core.redis_client import get_redis_client
 from app.core.rabbitmq_client import (
     get_rabbitmq_connection,
-    get_rabbitmq_queue_name,
     close_rabbitmq,
+    RABBITMQ_QUEUE_FILE_TASKS,
 )
 from app.core.minio_client import (
     get_minio_client,
@@ -142,7 +142,7 @@ class InfraProvider:
         # RabbitMQ
         if self.rabbitmq is not None:
             try:
-                queue_name = await get_rabbitmq_queue_name()
+                queue_name = RABBITMQ_QUEUE_FILE_TASKS
                 channel = await self.rabbitmq.channel()
                 await channel.declare_queue(queue_name, durable=True)
                 await channel.close()

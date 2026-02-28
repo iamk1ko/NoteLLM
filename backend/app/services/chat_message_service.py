@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import json
 import time
 from collections.abc import AsyncGenerator, Sequence
 from typing import Callable
@@ -11,6 +11,11 @@ from app.core.constants import MilvusField
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.prompts import load_prompt
+from app.core.rabbitmq_client import (
+    RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
+    get_rabbitmq_connection,
+)
+import aio_pika
 from app.crud import ChatMessageCRUD, ChatSessionCRUD
 from app.models import ChatMessage, User
 from app.schemas.chat_message import ChatMessageCreate
@@ -28,13 +33,13 @@ USER_PROMPT_TEMPLATE = load_prompt("chat_user.txt")
 
 class ChatMessageService:
     def __init__(
-            self,
-            db: AsyncSession,
-            llm_service: LLMService,
-            redis_memory_factory: Callable[[int], RedisChatMemory],
-            markdown_memory: MarkdownMemoryService,
-            milvus: MilvusVectorStore | None = None,
-            embedder: BgeM3Embedder | None = None,
+        self,
+        db: AsyncSession,
+        llm_service: LLMService,
+        redis_memory_factory: Callable[[int], RedisChatMemory],
+        markdown_memory: MarkdownMemoryService,
+        milvus: MilvusVectorStore | None = None,
+        embedder: BgeM3Embedder | None = None,
     ):
         self.db = db
         self.llm_service = llm_service
@@ -44,7 +49,7 @@ class ChatMessageService:
         self.embedder = embedder
 
     async def send_message(
-            self, user: User, session_id: int, payload: ChatMessageCreate
+        self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> ChatMessage | None:
         start_time = time.time()
 
@@ -145,7 +150,7 @@ class ChatMessageService:
         return ai_message
 
     async def send_message_stream(
-            self, user: User, session_id: int, payload: ChatMessageCreate
+        self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> AsyncGenerator[str, None]:
         start_time = time.time()
 
@@ -199,10 +204,10 @@ class ChatMessageService:
 
         try:
             async for token in self._generate_ai_response_stream(
-                    user_id=user.id,
-                    session_id=session_id,
-                    user_message=payload.content,
-                    file_id=session.context_id,
+                user_id=user.id,
+                session_id=session_id,
+                user_message=payload.content,
+                file_id=session.context_id,
             ):
                 full_response += token
                 token_count += 1
@@ -258,11 +263,11 @@ class ChatMessageService:
             )
 
     async def get_message_history(
-            self,
-            user: User,
-            session_id: int,
-            page: int = 1,
-            size: int = 20,
+        self,
+        user: User,
+        session_id: int,
+        page: int = 1,
+        size: int = 20,
     ) -> tuple[Sequence[ChatMessage], int]:
         redis_memory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -301,11 +306,11 @@ class ChatMessageService:
         return messages
 
     async def _generate_ai_response(
-            self,
-            user_id: int,
-            session_id: int,
-            user_message: str,
-            file_id: str | None,
+        self,
+        user_id: int,
+        session_id: int,
+        user_message: str,
+        file_id: str | None,
     ) -> str:
         redis_memory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -329,18 +334,16 @@ class ChatMessageService:
 
         # Redis 已在创建消息时写入，无需重复写入
 
-        asyncio.create_task(
-            self._update_long_term_memory(user_id, session_id, user_message, response)
-        )
+        await self._enqueue_memory_update(user_id, session_id, user_message, response)
 
         return response
 
     async def _generate_ai_response_stream(
-            self,
-            user_id: int,
-            session_id: int,
-            user_message: str,
-            file_id: str | None,
+        self,
+        user_id: int,
+        session_id: int,
+        user_message: str,
+        file_id: str | None,
     ) -> AsyncGenerator[str, None]:
         redis_memory: RedisChatMemory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -366,11 +369,8 @@ class ChatMessageService:
             full_response += token
             yield token
 
-        # TODO: 这里可以优化使用rabbitmq等消息队列来异步处理长期记忆更新，避免在主流程中创建过多的asyncio任务
-        asyncio.create_task(
-            self._update_long_term_memory(
-                user_id, session_id, user_message, full_response
-            )
+        await self._enqueue_memory_update(
+            user_id, session_id, user_message, full_response
         )
 
     async def _rag_search(self, query: str, file_id: str | None) -> str:
@@ -419,29 +419,36 @@ class ChatMessageService:
 
         return ""
 
-    async def _update_long_term_memory(self, user_id: int, session_id: int, user_message: str, ai_response: str):
+    async def _enqueue_memory_update(
+        self, user_id: int, session_id: int, user_message: str, ai_response: str
+    ) -> None:
         try:
-            prompt = load_prompt("memory_update.txt").format(
-                user_message=user_message,
-                assistant_message=ai_response,
-            )
-            summary_text = await self.llm_service.chat(
-                [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ]
-            )
-            updates = self._parse_summary_updates(summary_text)
-            await self.markdown_memory.apply_updates(user_id, session_id, updates)
+            connection = await get_rabbitmq_connection()
+            channel = await connection.channel()
+            try:
+                payload = {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "user_message": user_message,
+                    "ai_response": ai_response,
+                }
+                await channel.default_exchange.publish(
+                    aio_pika.Message(
+                        body=json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    ),
+                    routing_key=RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
+                )
+            finally:
+                await channel.close()
         except Exception as e:
-            logger.error("长期记忆更新失败: {}", e)
+            logger.error("长期记忆任务投递失败: {}", e)
 
     def _build_prompt(
-            self,
-            user_message: str,
-            evidence: str,
-            history: list[dict],
-            long_term_memory: str,
+        self,
+        user_message: str,
+        evidence: str,
+        history: list[dict],
+        long_term_memory: str,
     ) -> list[dict]:
         """
         构建 LLM 输入的 prompt，整合用户消息、RAG 证据、历史对话和长期记忆
@@ -467,7 +474,7 @@ class ChatMessageService:
         memory_limit = get_settings().REDIS_MEMORY_LIMIT
         prompt_text = USER_PROMPT_TEMPLATE.format(
             role_policies=memory_sections.get("role_policies")
-                          or "你是一个专业的AI助手。",
+            or "你是一个专业的AI助手。",
             task=memory_sections.get("task") or "回答用户问题。",
             state=memory_sections.get("state") or "暂无",
             rag_context=evidence or "（无检索结果）",
@@ -512,32 +519,4 @@ class ChatMessageService:
 
         return {k: v.strip() for k, v in sections.items()}
 
-    def _parse_summary_updates(self, content: str) -> dict[str, str]:
-        sections = {
-            "role_policies": "",
-            "task": "",
-            "state": "",
-            "output": "",
-        }
-        if not content:
-            return sections
-
-        current_key = ""
-        for line in content.split("\n"):
-            header = line.strip().lower()
-            if header.startswith("role"):
-                current_key = "role_policies"
-                continue
-            if header.startswith("task"):
-                current_key = "task"
-                continue
-            if header.startswith("state"):
-                current_key = "state"
-                continue
-            if header.startswith("output"):
-                current_key = "output"
-                continue
-            if current_key:
-                sections[current_key] += line + "\n"
-
-        return {k: v.strip() for k, v in sections.items()}
+    # 记忆摘要解析已迁移到消费者中

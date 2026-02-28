@@ -762,3 +762,15 @@ backend/app/services/chat_message_service.py: chat_message的service层，主要
 直接输出回答内容。
 =============== 长期记忆md文档格式参考 ===============
 
+
+[优化后端使用rabbitmq服务的代码]
+代码`backend/app/services/chat_message_service.py`中，目前还是使用`asyncio.create_task()`去异步执行一个任务。我想改造为使用rabbitmq服务去完成相应的任务。
+
+相关代码存放位置:
+  1. 有关于rabbitmq服务消费者的代码位于"backend/app/consumers"文件夹中。
+  2. 有关于mq队列名字配置位于"backend/app/core/rabbitmq_client.py"中。
+
+我的其他疑问：
+    1. 目前我不知道我使用rabbitmq服务相关的代码是否符合企业开发的最佳实践。
+    2. 目前consumers文件夹中既有每个任务对应的consumer.py文件，又有为了fastapi项目启动时就启动的listener.py。我不知道那种做法比较好。因为我平时在开发java的spring boot应用时，我启动spring boot应用，通过spring提供的注解，后台其实会帮我自动启动消费者去监听消息。我对于python的fastapi项目不熟练，目前还处于学习阶段，所以不知道怎么去使用。
+

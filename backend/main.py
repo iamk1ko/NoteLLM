@@ -6,8 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.consumers.file_merge_listener import start_file_merge_listener
-from app.consumers.vectorize_listener import start_vectorize_listener
+from app.consumers import start_all_listeners
 from app.core.app_state import get_app_state
 from app.core.db import Base, init_db, get_engine, close_db, get_async_sessionmaker
 from app.core.exceptions import (
@@ -54,8 +53,7 @@ async def lifespan(app: FastAPI):
     # 启动后台消费者（类似 Spring 的 @RabbitListener）
     # 注意：如果你使用多 worker（例如 gunicorn/uvicorn --workers>1），每个 worker 都会启动一个监听器。
     # 生产环境通常将 worker 与 web 服务解耦：单独起一个 consumer 进程更稳。
-    file_merge_task = start_file_merge_listener(app)
-    vectorize_task = start_vectorize_listener(app)
+    listener_tasks = start_all_listeners(app)
 
     print("\n" + "=" * 60)
     print("📚 API文档: http://localhost:8000/docs")
@@ -65,10 +63,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # 优雅停止后台监听器
-    vectorize_task.cancel()
-    file_merge_task.cancel()
+    for task in listener_tasks:
+        task.cancel()
 
-    for task in (vectorize_task, file_merge_task):
+    for task in listener_tasks:
         try:
             await task
         except asyncio.CancelledError:

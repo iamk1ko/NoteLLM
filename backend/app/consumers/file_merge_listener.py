@@ -19,9 +19,7 @@ from __future__ import annotations
 """
 
 import asyncio
-import json
 from typing import Any
-
 from fastapi import FastAPI
 from aio_pika.abc import AbstractIncomingMessage
 
@@ -29,6 +27,7 @@ from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
 from app.consumers.file_merge_consumer import _merge_file
 from app.core.app_state import get_app_state
+from app.utils.mq_utils import declare_retry_topology, handle_with_retry
 
 logger = get_logger(__name__)
 
@@ -51,16 +50,17 @@ async def _consume_loop(app: FastAPI) -> None:
     connection = infra.rabbitmq
     channel = await connection.channel()
     try:
-        queue = await channel.declare_queue(RABBITMQ_QUEUE_FILE_TASKS, durable=True)
-
-        logger.info("文件合并监听器已启动，开始消费队列：{}", RABBITMQ_QUEUE_FILE_TASKS)
+        topology = await declare_retry_topology(channel, RABBITMQ_QUEUE_FILE_TASKS, retry_ttl_ms=30000)
+        # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
+        queue = await channel.declare_queue(topology.queue_name, durable=True)
+        logger.info("文件合并监听器已启动，开始消费队列：{}", topology.queue_name)
 
         async with queue.iterator() as queue_iter:
             try:
                 async for message in queue_iter:
-                    await _handle_message(message)
+                    await _handle_message(message, topology)
             except asyncio.CancelledError:
-                # 正常：应用关停时取消任务
+                # 正常：应用关闭时取消任务
                 logger.info("文件合并监听器收到取消信号，准备退出")
                 raise
     except asyncio.CancelledError:
@@ -78,12 +78,19 @@ async def _consume_loop(app: FastAPI) -> None:
             pass
 
 
-async def _handle_message(message: AbstractIncomingMessage) -> None:
+async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
     """处理单条 RabbitMQ 消息。"""
 
-    async with message.process():
-        payload: dict[str, Any] = json.loads(message.body.decode("utf-8"))
+    async def handler(payload: dict[str, Any]) -> None:
         await _merge_file(payload["file_md5"], payload["user_id"])
+
+    await handle_with_retry(
+        message,
+        queue_name=RABBITMQ_QUEUE_FILE_TASKS,
+        handler=handler,
+        topology=topology,
+        max_retries=3,
+    )
 
 
 def start_file_merge_listener(app: FastAPI) -> asyncio.Task[None]:

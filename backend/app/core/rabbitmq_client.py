@@ -8,8 +8,6 @@ from app.core.settings import get_settings
 RABBITMQ_QUEUE_FILE_TASKS: str = "file_tasks"
 RABBITMQ_QUEUE_VECTORIZE_TASKS: str = "vectorize_tasks"
 RABBITMQ_QUEUE_CHAT_MEMORY_TASKS: str = "chat_memory_tasks"
-RABBITMQ_QUEUE_CHAT_MEMORY_RETRY_TASKS: str = "chat_memory_tasks.retry"
-RABBITMQ_QUEUE_CHAT_MEMORY_DLQ: str = "chat_memory_tasks.dlq"
 
 # 进程内缓存连接：
 # - connect_robust 本身具备自动重连能力

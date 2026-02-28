@@ -16,8 +16,7 @@ from __future__ import annotations
 """
 
 import asyncio
-import json
-from typing import Any, cast
+from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
 from fastapi import FastAPI
@@ -25,75 +24,26 @@ from fastapi import FastAPI
 from app.core.app_state import get_app_state
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_VECTORIZE_TASKS
-from app.core.db import get_sessionmaker
-from app.core.minio_client import get_minio_client
-from app.core.redis_client import get_redis_client
-from app.core.constants import RedisKey
-from app.core.settings import get_settings
-from app.services.vectorization_service import VectorizationService
-from app.services.vectorization.task_state import TaskStateStore
+from app.utils.mq_utils import declare_retry_topology, handle_with_retry
 from app.services.vectorization.vector_store import MilvusVectorStore
+from app.consumers.vectorize_consumer import _vectorize_task
 
 logger = get_logger(__name__)
 
 
-async def _vectorize_task(
-    payload: dict[str, Any], milvus_store: MilvusVectorStore
-) -> None:
-    """执行单条向量化任务。"""
-
-    db = get_sessionmaker()()
-    redis_client = cast(Any, get_redis_client())
-    minio_client = get_minio_client()
-    file_md5 = "unknown"
-
-    try:
-        file_id = int(payload["file_id"])
-        file_md5 = payload["file_md5"]
-        bucket_name = payload["bucket_name"]
-        object_name = payload["object_name"]
-        content_type = payload.get("content_type") or ""
-
-        task_status = await redis_client.get(
-            RedisKey.FILE_VECTORIZATION_TASK_STATUS.format(file_md5)
-        )
-        if isinstance(task_status, (bytes, bytearray)):
-            task_status = task_status.decode("utf-8")
-        if task_status == "success":
-            logger.info("Redis 显示向量化成功，清理后重跑：file_md5={}", file_md5)
-            await TaskStateStore(redis_client).clear(file_md5)
-
-        settings = get_settings()
-
-        # 使用传入的 milvus_store，假设已在应用启动时初始化完成
-        service = VectorizationService(
-            db=db,
-            redis_client=redis_client,
-            minio_client=minio_client,
-            vector_store=milvus_store,
-            memory_threshold_mb=settings.VECTOR_MEMORY_THRESHOLD_MB,
-            vector_batch_size=settings.VECTOR_BATCH_SIZE,
-        )
-        await service.vectorize_file(
-            file_id=file_id,
-            file_md5=file_md5,
-            bucket_name=bucket_name,
-            object_name=object_name,
-            content_type=content_type,
-        )
-        logger.info("向量化任务完成, file_md5={}", file_md5)
-    except Exception as e:
-        logger.error("向量化任务消费失败：file_md5={}, error={}", file_md5, e)
-    finally:
-        db.close()
-
-
 async def _handle_message(
-    message: AbstractIncomingMessage, milvus_store: MilvusVectorStore
+        message: AbstractIncomingMessage, milvus_store: MilvusVectorStore, topology
 ) -> None:
-    async with message.process():
-        payload: dict[str, Any] = json.loads(message.body.decode("utf-8"))
+    async def handler(payload: dict[str, Any]) -> None:
         await _vectorize_task(payload, milvus_store)
+
+    await handle_with_retry(
+        message,
+        queue_name=RABBITMQ_QUEUE_VECTORIZE_TASKS,
+        handler=handler,
+        topology=topology,
+        max_retries=3,
+    )
 
 
 async def _consume_loop(app: FastAPI) -> None:
@@ -107,17 +57,16 @@ async def _consume_loop(app: FastAPI) -> None:
     milvus_store = infra.milvus
     channel = await connection.channel()
     try:
-        queue = await channel.declare_queue(
-            RABBITMQ_QUEUE_VECTORIZE_TASKS, durable=True
-        )
-        logger.info(
-            "向量化监听器已启动，开始消费队列：{}", RABBITMQ_QUEUE_VECTORIZE_TASKS
-        )
+        topology = await declare_retry_topology(channel, RABBITMQ_QUEUE_VECTORIZE_TASKS, retry_ttl_ms=30000)
+
+        # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
+        queue = await channel.declare_queue(topology.queue_name, durable=True)
+        logger.info("向量化监听器已启动，开始消费队列：{}", topology.queue_name)
 
         async with queue.iterator() as queue_iter:
             try:
                 async for message in queue_iter:
-                    await _handle_message(message, milvus_store)
+                    await _handle_message(message, milvus_store, topology)
             except asyncio.CancelledError:
                 logger.info("向量化监听器收到取消信号，准备退出")
                 raise

@@ -4,28 +4,31 @@ import asyncio
 import json
 from typing import Any, cast
 
+from app.core.constants import RedisKey
 from app.core.db import get_sessionmaker
 from app.core.logging import get_logger
 from app.core.minio_client import get_minio_client
+from app.core.providers import InfraProvider
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_VECTORIZE_TASKS,
-    get_rabbitmq_connection,
 )
 from app.core.redis_client import get_redis_client
-from app.core.constants import RedisKey
-from app.services.vectorization_service import VectorizationService
-from app.services.vectorization.task_state import TaskStateStore
 from app.core.settings import get_settings
-from app.core.providers import InfraProvider
+from app.services import MilvusVectorStore
+from app.services.vectorization.task_state import TaskStateStore
+from app.services.vectorization_service import VectorizationService
 
 logger = get_logger(__name__)
 
 
-async def _vectorize_task(payload: dict[str, Any], milvus_store) -> None:
+async def _vectorize_task(payload: dict[str, Any], milvus_store: MilvusVectorStore) -> None:
+    """执行单条向量化任务。"""
+
     db = get_sessionmaker()()
     redis_client = cast(Any, get_redis_client())
     minio_client = get_minio_client()
     file_md5 = "unknown"
+
     try:
         file_id = int(payload["file_id"])
         file_md5 = payload["file_md5"]
@@ -42,15 +45,16 @@ async def _vectorize_task(payload: dict[str, Any], milvus_store) -> None:
             logger.info("Redis 显示向量化成功，清理后重跑：file_md5={}", file_md5)
             await TaskStateStore(redis_client).clear(file_md5)
 
-        vector_store = milvus_store
+        settings = get_settings()
 
+        # 使用传入的 milvus_store，假设已在应用启动时初始化完成
         service = VectorizationService(
             db=db,
             redis_client=redis_client,
             minio_client=minio_client,
-            vector_store=vector_store,
-            memory_threshold_mb=get_settings().VECTOR_MEMORY_THRESHOLD_MB,
-            vector_batch_size=get_settings().VECTOR_BATCH_SIZE,
+            vector_store=milvus_store,
+            memory_threshold_mb=settings.VECTOR_MEMORY_THRESHOLD_MB,
+            vector_batch_size=settings.VECTOR_BATCH_SIZE,
         )
         await service.vectorize_file(
             file_id=file_id,
@@ -59,6 +63,7 @@ async def _vectorize_task(payload: dict[str, Any], milvus_store) -> None:
             object_name=object_name,
             content_type=content_type,
         )
+        logger.info("向量化任务完成, file_md5={}", file_md5)
     except Exception as e:
         logger.error("向量化任务消费失败：file_md5={}, error={}", file_md5, e)
     finally:

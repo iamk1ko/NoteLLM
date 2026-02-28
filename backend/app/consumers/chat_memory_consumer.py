@@ -1,35 +1,33 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
-from aio_pika import Message
 from aio_pika.abc import AbstractIncomingMessage
 
+from app.utils.mq_utils import declare_retry_topology, handle_with_retry
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
-    RABBITMQ_QUEUE_CHAT_MEMORY_RETRY_TASKS,
-    RABBITMQ_QUEUE_CHAT_MEMORY_DLQ,
     get_rabbitmq_connection,
 )
 from app.core.settings import get_settings
+from app.core.minio_client import get_minio_client
 from app.prompts import load_prompt
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
-from app.core.minio_client import get_minio_client
 
 logger = get_logger(__name__)
 
 
-async def _handle_message(message: AbstractIncomingMessage) -> None:
-    try:
-        payload: dict[str, Any] = json.loads(message.body.decode("utf-8"))
-        await _update_memory(payload)
-        await message.ack()
-    except Exception as e:
-        await _handle_failure(message, e)
+async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
+    await handle_with_retry(
+        message,
+        queue_name=RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
+        handler=_update_memory,  # 实际处理函数作为参数传入。注意：handler函数只能接受payload参数!!!
+        topology=topology,
+        max_retries=3,
+    )
 
 
 async def _update_memory(payload: dict[str, Any]) -> None:
@@ -64,42 +62,8 @@ async def _update_memory(payload: dict[str, Any]) -> None:
     await memory.apply_updates(user_id, session_id, updates)
 
 
-async def _handle_failure(message: AbstractIncomingMessage, error: Exception) -> None:
-    headers = message.headers or {}
-    retry_count = int(headers.get("x-retry-count", 0))
-    body = message.body
-
-    connection = await get_rabbitmq_connection()
-    channel = await connection.channel()
-    try:
-        if retry_count < 3:
-            next_headers = {**headers, "x-retry-count": retry_count + 1}
-            await channel.default_exchange.publish(
-                Message(body=body, headers=next_headers),
-                routing_key=RABBITMQ_QUEUE_CHAT_MEMORY_RETRY_TASKS,
-            )
-            logger.warning(
-                "聊天记忆消费失败，投递重试队列: retry_count={}, error={}",
-                retry_count + 1,
-                error,
-            )
-        else:
-            await channel.default_exchange.publish(
-                Message(body=body, headers=headers),
-                routing_key=RABBITMQ_QUEUE_CHAT_MEMORY_DLQ,
-            )
-            logger.error(
-                "聊天记忆消费失败，投递死信队列: retry_count={}, error={}",
-                retry_count,
-                error,
-            )
-    finally:
-        await channel.close()
-    await message.ack()
-
-
 def _parse_summary_updates(content: str) -> dict[str, str]:
-    sections = {
+    sections: dict[str, str] = {
         "role_policies": "",
         "task": "",
         "state": "",
@@ -133,14 +97,11 @@ async def run_chat_memory_consumer() -> None:
     connection = await get_rabbitmq_connection()
     channel = await connection.channel()
     try:
-        await channel.declare_queue(RABBITMQ_QUEUE_CHAT_MEMORY_TASKS, durable=True)
-        await channel.declare_queue(
-            RABBITMQ_QUEUE_CHAT_MEMORY_RETRY_TASKS, durable=True
+        topology = await declare_retry_topology(
+            channel, RABBITMQ_QUEUE_CHAT_MEMORY_TASKS, retry_ttl_ms=30000
         )
-        await channel.declare_queue(RABBITMQ_QUEUE_CHAT_MEMORY_DLQ, durable=True)
-        queue = await channel.declare_queue(
-            RABBITMQ_QUEUE_CHAT_MEMORY_TASKS, durable=True
-        )
+        # 拿到 Queue 对象用于消费（不要额外传 arguments，避免与 declare_retry_topology 的声明不一致）
+        queue = await channel.declare_queue(topology.queue_name, durable=True)
         logger.info(
             "chat_memory_consumer(worker) 已启动，开始消费队列：{}",
             RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
@@ -148,7 +109,7 @@ async def run_chat_memory_consumer() -> None:
 
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
-                await _handle_message(message)
+                await _handle_message(message, topology)
     finally:
         await channel.close()
         await connection.close()

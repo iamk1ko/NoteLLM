@@ -384,14 +384,16 @@ class ChatMessageService:
             await redis_memory.load_from_mysql(self.db)
         history = await redis_memory.get_context_for_llm()
 
-        evidence = await self._rag_search(user_message, file_id)
+        try:
+            evidence = await self._rag_search(user_message, file_id)
+        except Exception as e:
+            logger.warning("RAG 检索失败，降级为无检索结果: {}", e)
+            evidence = ""
 
         try:
-            long_term_memory = await self.markdown_memory.load_memory(
-                user_id, session_id
-            )
+            long_term_memory = await self.markdown_memory.load_memory(user_id, session_id)
         except Exception as e:
-            logger.warning("长期记忆加载失败，降级为短期记忆。错误信息: {}", e)
+            logger.warning("长期记忆加载失败，降级为 Redis 中存储的短期记忆。错误信息: {}", e)
             long_term_memory = ""
 
         prompt_messages = self._build_prompt(
@@ -421,7 +423,6 @@ class ChatMessageService:
                 query=query,
                 k=settings.RAG_TOP_K,
                 filters=filters,
-                alpha=settings.RAG_RANKER_ALPHA,
             )
             logger.info(
                 "RAG 混合检索完成: query='{}', top_k={}, raw_results={}",

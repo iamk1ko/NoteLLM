@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import time
 from typing import Dict, Any, Optional, List
@@ -37,14 +36,14 @@ FILE_MD5_MAX_LENGTH = (
 
 class MilvusVectorStore:
     def __init__(
-        self,
-        *,
-        uri: str,
-        collection_name: str,
-        dim: int = 1024,
-        metric_type: str = "COSINE",
-        alias: str = "default",
-        embedder: Embedder | None = None,
+            self,
+            *,
+            uri: str,
+            collection_name: str,
+            dim: int = 1024,
+            metric_type: str = "COSINE",
+            alias: str = "default",
+            embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -440,7 +439,7 @@ class MilvusVectorStore:
             batch_size = get_settings().VS_BATCH_SIZE
             total_inserted = 0
             for i in range(0, len(entities), batch_size):
-                batch = entities[i : i + batch_size]
+                batch = entities[i: i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -543,11 +542,11 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-        self,
-        *,
-        query_vector: list[float],
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query_vector: list[float],
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -593,11 +592,11 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-        self,
-        *,
-        query: str,
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query: str,
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -643,19 +642,18 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-        self,
-        *,
-        query: str,
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
-        alpha: float = 0.7,
+            self,
+            *,
+            query: str,
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
-        logger.info(
-            "混合检索开始 (Milvus hybrid_search), top_k={}, alpha(ignored)={}", k, alpha
-        )
+        logger.info("混合检索开始 (Milvus hybrid_search), top_k={}", k)
 
-        query_vector = (await self._require_embedding().aembed_queries([query]))[0]
+        query_vectors: list[list[float]] = await self._require_embedding().aembed_queries([query])
+        query_vector: list[float] = query_vectors[0] if query_vectors else ""
+
         logger.info(
             "RAG 查询向量化完成: query='{}', vector_dim={}",
             query,

@@ -91,14 +91,15 @@ export const sendMessageStream = async (
   const url = `${baseURL}/sessions/${sessionId}/messages/stream`;
 
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      // IMPORTANT: Include credentials (cookies) for authentication
-      credentials: "include",
-      body: JSON.stringify({
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        // IMPORTANT: Include credentials (cookies) for authentication
+        credentials: "include",
+        body: JSON.stringify({
         session_id: sessionId,
         content,
         role: "user",
@@ -116,6 +117,8 @@ export const sendMessageStream = async (
     }
 
     const decoder = new TextDecoder("utf-8");
+    // SSE 事件可能被拆包，使用缓冲区拼接后按事件分隔符解析
+    let buffer = "";
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -125,13 +128,23 @@ export const sendMessageStream = async (
         break;
       }
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+      buffer += decoder.decode(value, { stream: true });
 
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6);
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
 
+      let hadChunk = false;
+      for (const event of events) {
+        const lines = event.split("\n");
+        for (const line of lines) {
+          const cleaned = line.trimEnd();
+          if (!cleaned.startsWith("data: ")) {
+            continue;
+          }
+          const data = cleaned.slice(6).trim();
+          if (!data) {
+            continue;
+          }
           try {
             const parsed = JSON.parse(data);
 
@@ -147,11 +160,16 @@ export const sendMessageStream = async (
 
             if (parsed.content) {
               onChunk?.(parsed.content);
+              hadChunk = true;
             }
           } catch {
-            // Ignore parse errors for incomplete JSON
+            // Incomplete JSON, wait for next chunk
           }
         }
+      }
+
+      if (hadChunk) {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
       }
     }
 

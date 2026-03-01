@@ -1,7 +1,10 @@
 [project]
-name = "my-rag-demo"
+name = "NoteLLM"
 version = "0.1.0"
-description = "Add your description here"
+description = "A knowledge graph and vector database management system built with FastAPI and LangChain."
+authors = [
+    { name = "Yushuang Fu", address = "https://github.com/iamk1ko/NoteLLM" }
+]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.128.0",

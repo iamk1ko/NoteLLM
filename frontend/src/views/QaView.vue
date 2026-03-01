@@ -26,7 +26,7 @@
       </div>
     </div>
 
-    <div class="card qa__history">
+    <div class="card qa__history" ref="historyRef">
       <h3 class="section-title">问答记录</h3>
       <div v-if="records.length" class="qa__list">
         <div v-for="item in records" :key="item.id" class="qa__item">
@@ -50,17 +50,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 
 import { useFilesStore } from "@/store/files";
 import { useQaStore } from "@/store/qa";
+import { createAutoScroll } from "@/utils/autoScroll";
 
 const filesStore = useFilesStore();
 const qaStore = useQaStore();
 
 const question = ref("");
 const fileId = ref<string | undefined>(undefined);
+const historyRef = ref<HTMLElement | null>(null);
+const { scrollToBottom, updateAutoScroll } = createAutoScroll({
+  threshold: 120
+});
+const handleScroll = () => updateAutoScroll(historyRef.value);
 
 const loading = computed(() => qaStore.loading);
 const records = computed(() => qaStore.records);
@@ -79,13 +85,29 @@ const reset = () => {
   question.value = "";
 };
 
+const scrollToBottomIfNeeded = () => scrollToBottom(historyRef.value);
+
 watch(fileId, async (value) => {
   await qaStore.loadHistory(value);
 });
 
+watch(records, () => {
+  scrollToBottomIfNeeded();
+}, { deep: true });
+
 onMounted(async () => {
   await filesStore.loadFiles();
   await qaStore.loadHistory();
+  scrollToBottomIfNeeded();
+  if (historyRef.value) {
+    historyRef.value.addEventListener("scroll", handleScroll, { passive: true });
+  }
+});
+
+onUnmounted(() => {
+  if (historyRef.value) {
+    historyRef.value.removeEventListener("scroll", handleScroll);
+  }
 });
 </script>
 

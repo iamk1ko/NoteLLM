@@ -897,4 +897,28 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 [重构后端混合检索的代码]
 目前混合检索的策略是我自己自定义实现的，代码位于"backend/app/services/vectorization/vector_store.py"中的方法"async def search_hybrid()"中，我自己实现了重排序以及混合检索的策略。
 但是我发现其实milvus官方提供了相应的api接口。我现在需要重构我"vector_store"中的代码。
-你可以参考官方给出的使用文档结合我自己搭建的知识库来重新构建我的代码，官方文档网址位于"https://milvus.io/docs/zh/multi-vector-search.md"中。
+你可以参考官方给出的使用文档结合我自己搭建的知识库来重新构建我的代码，官方文档我已下载位于"docs/multi-vector-search.md"中。
+
+[llm流式输出优化]
+后端相关代码："backend/app/api/v1/endpoints/chat_messages.py", "backend/app/services/chat_message_service.py", "backend/app/services/llm/service.py"
+
+我发现当我和llm对话时，前端页面我观察到的并非为像打字机那样的流式输出，前端页面中我看到的是页面一直卡在哪儿不动，然后隔了一会儿所有llm的回复都全部显示出来了，很影响用户的体验。
+
+检查是否后端代码中流式输出的代码不对，我调用llm使用的是langchain_openai库来构建的。
+此外，前端调用后端api接口部分的代码是不是也没有正确处理？仔细检查一下。
+
+# [Agent服务模块构建辅助聊天功能模块]
+## 项目基础信息
+项目包管理器: uv
+后端项目源代码目录: "backend"
+后端controller层: "backend/app/api/v1/endpoints"
+后端service层: "backend/app/services"
+
+## 当前聊天业务设计
+聊天功能模块入口: "backend/app/api/v1/endpoints/chat_messages.py"
+聊天功能模块的核心业务代码: "backend/app/services/chat_message_service.py"
+额外服务：
+    1. 向量化服务与RAG检索："backend/app/services/vectorization"。包含redis、milvus、mysql等使用。
+  2. llm api调用对话功能："backend/app/services/llm"。
+  3. 长期记忆管理功能: "backend/app/services/memory" 。目前还是初步设计阶段，未来设想引入agent后，为agent充当长期记忆支持。
+

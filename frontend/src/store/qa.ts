@@ -1,11 +1,12 @@
 import { defineStore } from "pinia";
-import { 
-  createSession, 
-  fetchSessions, 
-  sendMessage, 
-  fetchMessages 
+import {
+  createSession,
+  fetchSessions,
+  sendMessageStream,
+  fetchMessages
 } from "@/services/qa";
 import type { MessageItem, SessionItem } from "@/services/types";
+import { createStreamFlusher } from "@/utils/streaming";
 
 interface QaState {
   sessionId: number | null; // Current active session ID
@@ -83,24 +84,55 @@ export const useQaStore = defineStore("qa", {
 
       this.loading = true;
       try {
-        // 1. Send User Message
-        await sendMessage(this.sessionId, question);
-        
-        // 2. Poll for Assistant Message (Simple polling for now)
-        // In a real app, use SSE or WebSocket. Here we just wait a bit and refresh.
-        await this.refreshMessages();
-        
-        // Polling logic: Check if last message is from user. If so, wait and refresh again.
-        let attempts = 0;
-        while (attempts < 10) {
-          const lastMsg = this.records[this.records.length - 1];
-          if (lastMsg && lastMsg.role === 'assistant') {
-            break; 
+        const now = new Date().toISOString();
+        // 这里生成临时消息，确保用户体验流畅且不依赖后端立即返回
+        const userMsg: MessageItem = {
+          id: Date.now(),
+          session_id: this.sessionId,
+          user_id: 0,
+          role: "user",
+          content: question,
+          create_time: now,
+        };
+        this.records.push(userMsg);
+
+        // AI 消息占位，内容将通过流式输出逐步拼接
+        const aiMsg: MessageItem = {
+          id: Date.now() + 1,
+          session_id: this.sessionId,
+          user_id: 0,
+          role: "assistant",
+          content: "",
+          create_time: now,
+        };
+        this.records.push(aiMsg);
+
+        // 使用统一的流式缓冲器控制刷新频率，避免频繁触发响应式更新
+        const flusher = createStreamFlusher({
+          onFlush: (chunk) => {
+            aiMsg.content += chunk;
+            this.records = [...this.records];
           }
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s
-          await this.refreshMessages();
-          attempts++;
-        }
+        });
+
+        await sendMessageStream(
+          this.sessionId,
+          question,
+          (chunk) => {
+            // 累积片段，达到阈值或间隔后统一刷新
+            flusher.push(chunk);
+          },
+          async () => {
+            flusher.flush();
+            this.loading = false;
+            await this.refreshMessages();
+          },
+          (error) => {
+            flusher.flush();
+            this.loading = false;
+            aiMsg.content += `\n\n[Error: ${error}]`;
+          }
+        );
       } finally {
         this.loading = false;
       }

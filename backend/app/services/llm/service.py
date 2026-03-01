@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import AsyncGenerator
 
-from langchain_classic.callbacks.streaming_aiter import AsyncIteratorCallbackHandler
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from app.core.logging import get_logger
 
@@ -29,14 +29,20 @@ class LLMService:
         self.base_url = base_url
 
     def _create_llm(self) -> ChatOpenAI:
-        """创建 LLM 实例"""
+        """
+        创建 LLM 实例
+
+        Notes:
+            LangChain 会对某些已知参数（例如 max_tokens）发出告警：
+            如果通过 model_kwargs 传入，会提示“应显式指定”。因此这里改为显式参数。
+        """
         return ChatOpenAI(
-            api_key=self.api_key,
+            api_key=SecretStr(self.api_key),
             base_url=f"{self.base_url}/v1/",
             model=self.model,
             temperature=self.temperature,
-            max_tokens=self.max_tokens,
             streaming=True,  # 启用流式输出
+            max_tokens=self.max_tokens,
         )
 
     async def chat(self, messages: list[dict]) -> str:
@@ -48,7 +54,7 @@ class LLMService:
 
         response = await llm.ainvoke(langchain_messages)
         # TODO: 这里还能优化，可以返回response对象，包含更多信息（如token使用量等），而不仅仅是content字符串
-        return response.content
+        return str(response.content)
 
     async def chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
         """流式调用 LLM yield 每个 token"""
@@ -57,23 +63,10 @@ class LLMService:
         # 转换消息格式
         langchain_messages = self._convert_messages(messages)
 
-        # 创建回调处理器来捕获流式输出
-        callback_handler = AsyncIteratorCallbackHandler()
-
-        # 修改 llm 使用回调
-        llm.callbacks = [callback_handler]
-
-        # 异步任务：触发 LLM 调用
-        import asyncio
-
-        task = asyncio.create_task(llm.ainvoke(langchain_messages))
-
-        # Yield 每一个 token
-        async for token in callback_handler.aiter():
-            yield token
-
-        # 等待任务完成
-        await task
+        async for chunk in llm.astream(langchain_messages):
+            content = getattr(chunk, "content", "")
+            if content:
+                yield str(content)
 
     def _convert_messages(self, messages: list[dict]) -> list[BaseMessage]:
         """将字典格式的消息转换为 LangChain 消息对象"""

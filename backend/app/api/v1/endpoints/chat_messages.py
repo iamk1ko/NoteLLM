@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -81,7 +82,7 @@ def get_chat_service(
         llm_service=llm_service,
         redis_memory_factory=redis_memory_factory,
         markdown_memory=markdown_memory,
-        milvus=vector_store
+        milvus=vector_store,
     )
 
 
@@ -116,6 +117,11 @@ async def send_message_stream(
 
     async def event_generator():
         try:
+            logger.info(
+                "SSE stream start: session_id={}, user_id={}",
+                session_id,
+                current_user.id,
+            )
             async for token in service.send_message_stream(
                     current_user, session_id, payload
             ):
@@ -124,10 +130,22 @@ async def send_message_stream(
                     break
                 else:
                     yield f"data: {json.dumps({'content': token})}\n\n"
+                await asyncio.sleep(0)
 
             yield f"data: {json.dumps({'done': True})}\n\n"
+            logger.info(
+                "SSE stream end: session_id={}, user_id={}",
+                session_id,
+                current_user.id,
+            )
 
         except Exception as e:
+            logger.error(
+                "SSE stream error: session_id={}, user_id={}, error={}",
+                session_id,
+                current_user.id,
+                e,
+            )
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -137,6 +155,8 @@ async def send_message_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+            "Content-Type": "text/event-stream; charset=utf-8",
         },
     )
 

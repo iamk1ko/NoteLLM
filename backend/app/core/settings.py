@@ -64,9 +64,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
     DB_DRIVER: str = "mysql+aiomysql"
     DB_ECHO: bool = False  # SQLAlchemy 是否输出执行的 SQL 语句到日志，生产环境建议关闭，开发环境可开启调试 SQL。
-    DB_POOL_SIZE: int = (
-        10  # 数据库连接池的大小，生产环境建议根据并发量调整，开发环境默认10通常足够。
-    )
+    DB_POOL_SIZE: int = 10  # 数据库连接池的大小，生产环境建议根据并发量调整，开发环境默认10通常足够。
     DB_MAX_OVERFLOW: int = 20  # 连接池外最多允许的连接数，设置为0表示不允许超过 pool_size 的连接，生产环境可适当调整以应对突发流量。
     DB_POOL_TIMEOUT: int = 30  # 获取连接的超时时间（秒），生产环境建议设置合理的超时时间以避免长时间等待，开发环境默认30秒通常足够。
 
@@ -109,7 +107,6 @@ class Settings(BaseSettings):
     # RAG Config
     RAG_HISTORY_LIMIT: int = 8
     RAG_CACHE_TTL: int = 300
-    RAG_RANKER_ALPHA: float = 0.7
     RAG_TOP_K: int = 3
 
     # Chat Memory Config

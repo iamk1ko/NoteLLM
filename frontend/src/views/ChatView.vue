@@ -101,7 +101,7 @@
         </div>
       </div>
 
-      <div class="messages-container" ref="messagesRef">
+      <div class="messages-container" ref="messagesRef" @click="handleMessagesClick">
         <!-- Vectorizing Blocking State -->
         <div v-if="detail?.status === 1" class="blocking-state">
            <div class="loading-spinner large"></div>
@@ -123,7 +123,7 @@
 
         <div 
           v-for="msg in records" 
-          :key="msg.id" 
+          :key="`${msg.id}-${streamTick}`" 
           class="message-wrapper"
         >
           <!-- User Message -->
@@ -224,18 +224,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { useQaStore } from '@/store/qa';
 import { formatSize, formatTime } from '@/utils/format';
+import { createAutoScroll } from '@/utils/autoScroll';
 import { communityService } from '@/services/community';
 import { getFilePreview } from '@/services/files';
-import { sendMessageStream } from '@/services/qa';
 import MarkdownIt from 'markdown-it';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/atom-one-dark.css';
 import { ElMessage } from 'element-plus';
 import FilePreviewModal from '@/components/FilePreviewModal.vue';
-import type { MessageItem } from '@/services/types';
 
 const md = new MarkdownIt({
   html: true,
@@ -243,6 +244,42 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: true,
 });
+
+// Override fence renderer to add code highlighting and copy button
+md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const lang = token.info.trim();
+  const code = token.content;
+  
+  let highlightedCode = '';
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      highlightedCode = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+    } catch (__) {
+      highlightedCode = md.utils.escapeHtml(code);
+    }
+  } else {
+    highlightedCode = md.utils.escapeHtml(code);
+  }
+  
+  const encodedCode = encodeURIComponent(code);
+  
+  return `
+    <div class="code-block-wrapper">
+      <div class="code-block-header">
+        <span class="code-lang">${lang || 'text'}</span>
+        <button class="code-copy-btn" data-code="${encodedCode}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          COPY
+        </button>
+      </div>
+      <pre class="hljs"><code class="language-${lang}">${highlightedCode}</code></pre>
+    </div>
+  `;
+};
 
 const renderMarkdown = (content: string) => {
   return md.render(content || '');
@@ -254,6 +291,22 @@ const copyToClipboard = async (text: string) => {
     ElMessage.success('已复制到剪贴板');
   } catch {
     ElMessage.error('复制失败');
+  }
+};
+
+const handleMessagesClick = (event: MouseEvent) => {
+  const target = event.target as HTMLElement;
+  const btn = target.closest('.code-copy-btn');
+  if (btn) {
+    const code = decodeURIComponent(btn.getAttribute('data-code') || '');
+    if (code) {
+      copyToClipboard(code);
+      const originalText = btn.innerHTML;
+      btn.innerHTML = 'COPIED!';
+      setTimeout(() => {
+        btn.innerHTML = originalText;
+      }, 2000);
+    }
   }
 };
 
@@ -272,6 +325,10 @@ const qaStore = useQaStore();
 // --- State ---
 const question = ref(''); // 用户输入的问题
 const messagesRef = ref<HTMLElement | null>(null); // 消息列表容器引用，用于滚动到底部
+const { scrollToBottom, updateAutoScroll } = createAutoScroll({
+  threshold: 120
+});
+const handleScroll = () => updateAutoScroll(messagesRef.value);
 const inputRef = ref<HTMLTextAreaElement | null>(null); // 输入框引用，用于自动调整高度
 const isSidebarCollapsed = ref(false); // 侧边栏折叠状态
 const generatingSummary = ref(false); // Add generating summary state
@@ -365,13 +422,7 @@ const shareSession = async () => {
  * 滚动消息列表到底部
  * 在新消息生成或加载历史记录后调用
  */
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (messagesRef.value) {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
-    }
-  });
-};
+const scrollToBottomIfNeeded = () => scrollToBottom(messagesRef.value);
 
 /**
  * 提交问题
@@ -396,58 +447,13 @@ const submitQuestion = async () => {
     return;
   }
 
-  // 添加用户消息到列表
-  const userMsg: MessageItem = {
-    id: Date.now(),
-    session_id: qaStore.sessionId,
-    user_id: 0,
-    role: 'user',
-    content: q,
-    create_time: new Date().toISOString(),
-  };
-  qaStore.records.push(userMsg);
-  
-  // 创建空的 AI 消息占位
-  const aiMsg: MessageItem = {
-    id: Date.now() + 1,
-    session_id: qaStore.sessionId,
-    user_id: 0,
-    role: 'assistant',
-    content: '',
-    create_time: new Date().toISOString(),
-  };
-  qaStore.records.push(aiMsg);
-  
-  // 设置加载状态
-  qaStore.loading = true;
-  
-  // 流式接收 AI 响应
-  try {
-    await sendMessageStream(
-      qaStore.sessionId,
-      q,
-      (chunk) => {
-        // 追加内容到 AI 消息
-        aiMsg.content += chunk;
-        scrollToBottom();
-      },
-      () => {
-        // 流式完成
-        qaStore.loading = false;
-        ElMessage.success('回答完成');
-      },
-      (error) => {
-        // 错误处理
-        qaStore.loading = false;
-        aiMsg.content += '\n\n[Error: ' + error + ']';
-        ElMessage.error('回答生成失败: ' + error);
-      }
-    );
-  } catch (error) {
-    qaStore.loading = false;
-    console.error('Send message error:', error);
-    ElMessage.error('发送消息失败');
-  }
+   // 统一由 store 处理流式输出
+   try {
+     await qaStore.sendQuestion(q, String(detail.value?.id));
+   } catch (error) {
+     console.error('Send message error:', error);
+     ElMessage.error('发送消息失败');
+   }
 };
 
 // --- Polling Logic ---
@@ -510,7 +516,7 @@ watch(question, () => {
 
 // 监听消息记录变化，自动滚动到底部
 watch(records, () => {
-  scrollToBottom();
+  scrollToBottomIfNeeded();
 }, { deep: true });
 
 // --- Lifecycle ---
@@ -520,17 +526,23 @@ onMounted(async () => {
     // 串行加载防止并发竞争（也可改为Promise.all优化）
     await filesStore.loadDetail(id);
     await qaStore.loadHistory(id);
-    scrollToBottom();
+    scrollToBottomIfNeeded();
     
     // Check initial status for polling
     if (detail.value?.status === 1) {
       startPolling();
     }
   }
+  if (messagesRef.value) {
+    messagesRef.value.addEventListener('scroll', handleScroll, { passive: true });
+  }
 });
 
 onUnmounted(() => {
   stopPolling();
+  if (messagesRef.value) {
+    messagesRef.value.removeEventListener('scroll', handleScroll);
+  }
 });
 </script>
 
@@ -1029,22 +1041,70 @@ onUnmounted(() => {
   padding: 2px 6px;
   font-family: 'Courier New', monospace;
   border: 1px solid black;
+  color: var(--nl-danger); /* Give inline code a distinct color */
 }
 
-.ai-content :deep(pre) {
-  background: #1a1a1a;
-  color: #00ff00;
-  padding: 16px;
-  margin: 12px 0;
-  overflow-x: auto;
+/* Custom Code Block Wrapper */
+.ai-content :deep(.code-block-wrapper) {
+  margin: 16px 0;
   border: var(--nl-border-width) solid var(--nl-border);
+  box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+  background: #282c34; /* Atom One Dark background */
+  overflow: hidden;
+}
+
+.ai-content :deep(.code-block-header) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e2227; /* Darker header */
+  padding: 4px 12px;
+  border-bottom: var(--nl-border-width) solid var(--nl-border);
+}
+
+.ai-content :deep(.code-lang) {
+  color: #abb2bf;
+  font-family: var(--font-display);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.ai-content :deep(.code-copy-btn) {
+  background: transparent;
+  border: none;
+  color: #abb2bf;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  transition: all 0.2s;
+}
+
+.ai-content :deep(.code-copy-btn:hover) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ai-content :deep(pre.hljs) {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  background: transparent; /* Rely on wrapper background */
+  color: #abb2bf; /* Default One Dark color */
+  border: none; /* Remove old border */
 }
 
 .ai-content :deep(pre code) {
   background: transparent;
-  color: #00ff00;
   border: none;
   padding: 0;
+  color: inherit;
+  font-family: 'Courier New', monospace;
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .ai-content :deep(blockquote) {

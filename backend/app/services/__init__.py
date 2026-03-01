@@ -16,7 +16,6 @@ __all__ = [
     "FileStorageService",
     "UserService",
     "VectorizationService",
-    "RagService",
     "DocumentParser",
     "TextChunker",
     "MinioFileReader",
@@ -59,7 +58,6 @@ if TYPE_CHECKING:
     from app.services.file_storage_service import FileStorageService
     from app.services.users_service import UserService
     from app.services.vectorization_service import VectorizationService
-    from app.services.rag.service import RagService
     from app.services.vectorization.document_parser import DocumentParser
     from app.services.vectorization.text_chunker import TextChunker
     from app.services.vectorization.file_reader import MinioFileReader

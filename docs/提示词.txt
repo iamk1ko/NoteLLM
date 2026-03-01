@@ -892,3 +892,9 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 2026-03-01 23:13:10 | SpawnProcess-1 | MainThread | vector_store.add_documents:528 | INFO: 正在向集合 knowledge_base 插入 29 条数据... 
 2026-03-01 23:13:11 | SpawnProcess-1 | MainThread | vector_store.add_documents:536 | INFO: 插入完成，耗时: 0.06s 
 2026-03-01 23:13:11 | SpawnProcess-1 | MainThread | vector_store.add_documents:537 | INFO: 新文档添加流程总耗时: 1.78s 
+
+
+[重构后端混合检索的代码]
+目前混合检索的策略是我自己自定义实现的，代码位于"backend/app/services/vectorization/vector_store.py"中的方法"async def search_hybrid()"中，我自己实现了重排序以及混合检索的策略。
+但是我发现其实milvus官方提供了相应的api接口。我现在需要重构我"vector_store"中的代码。
+你可以参考官方给出的使用文档结合我自己搭建的知识库来重新构建我的代码，官方文档网址位于"https://milvus.io/docs/zh/multi-vector-search.md"中。

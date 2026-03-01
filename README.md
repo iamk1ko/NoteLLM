@@ -187,6 +187,7 @@ flowchart LR
 | 🧠 向量库 | Milvus | 语义检索 |
 | 📨 消息队列 | RabbitMQ | 异步向量化任务 |
 | 🤖 LLM | API 接入 (DeepSeek/BLSC) | 对话生成 |
+| 🧩 Embedding | OpenAIEmbeddings (远程调用) | 向量化/检索 |
 
 ---
 
@@ -236,6 +237,8 @@ docker compose -f docs/docker/docker-compose.yaml up -d
 | `MILVUS_PORT` | Milvus 端口 | `19530` |
 | `BLSC_API_KEY` | LLM API Key | `sk-xxx` |
 | `BLSC_BASE_URL` | LLM API 地址 | `https://llmapi.blsc.cn` |
+| `EMBEDDING_MODEL_NAME` | Embedding 模型 | `GLM-Embedding-3` |
+| `EMBEDDING_DIM` | Embedding 维度 | `1024` |
 
 #### 2️⃣ 启动后端
 

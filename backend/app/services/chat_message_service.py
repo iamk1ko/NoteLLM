@@ -22,7 +22,6 @@ from app.schemas.chat_message import ChatMessageCreate
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
-from app.services.vectorization.embedder import Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
@@ -33,23 +32,21 @@ USER_PROMPT_TEMPLATE = load_prompt("chat_user.txt")
 
 class ChatMessageService:
     def __init__(
-        self,
-        db: AsyncSession,
-        llm_service: LLMService,
-        redis_memory_factory: Callable[[int], RedisChatMemory],
-        markdown_memory: MarkdownMemoryService,
-        milvus: MilvusVectorStore | None = None,
-        embedder: Embedder | None = None,
+            self,
+            db: AsyncSession,
+            llm_service: LLMService,
+            redis_memory_factory: Callable[[int], RedisChatMemory],
+            markdown_memory: MarkdownMemoryService,
+            milvus: MilvusVectorStore | None = None,
     ):
         self.db = db
         self.llm_service = llm_service
         self.redis_memory_factory = redis_memory_factory
         self.markdown_memory = markdown_memory
         self.milvus = milvus
-        self.embedder = embedder
 
     async def send_message(
-        self, user: User, session_id: int, payload: ChatMessageCreate
+            self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> ChatMessage | None:
         start_time = time.time()
 
@@ -150,7 +147,7 @@ class ChatMessageService:
         return ai_message
 
     async def send_message_stream(
-        self, user: User, session_id: int, payload: ChatMessageCreate
+            self, user: User, session_id: int, payload: ChatMessageCreate
     ) -> AsyncGenerator[str, None]:
         start_time = time.time()
 
@@ -224,10 +221,10 @@ class ChatMessageService:
 
         try:
             async for token in self._generate_ai_response_stream(
-                user_id=user.id,
-                session_id=session_id,
-                user_message=payload.content,
-                file_id=session.context_id,
+                    user_id=user.id,
+                    session_id=session_id,
+                    user_message=payload.content,
+                    file_id=session.context_id,
             ):
                 full_response += token
                 token_count += 1
@@ -291,11 +288,11 @@ class ChatMessageService:
                     logger.warning("释放会话锁失败: session_id={}", session_id)
 
     async def get_message_history(
-        self,
-        user: User,
-        session_id: int,
-        page: int = 1,
-        size: int = 20,
+            self,
+            user: User,
+            session_id: int,
+            page: int = 1,
+            size: int = 20,
     ) -> tuple[Sequence[ChatMessage], int]:
         redis_memory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -303,10 +300,10 @@ class ChatMessageService:
 
         items, total = await redis_memory.get_messages_page(page, size)
         if items and any(
-            item.get("id") is None
-            or item.get("session_id") is None
-            or item.get("user_id") is None
-            for item in items
+                item.get("id") is None
+                or item.get("session_id") is None
+                or item.get("user_id") is None
+                for item in items
         ):
             await redis_memory.clear_cache()
             await redis_memory.load_from_mysql(self.db)
@@ -343,11 +340,11 @@ class ChatMessageService:
         return messages
 
     async def _generate_ai_response(
-        self,
-        user_id: int,
-        session_id: int,
-        user_message: str,
-        file_id: str | None,
+            self,
+            user_id: int,
+            session_id: int,
+            user_message: str,
+            file_id: str | None,
     ) -> str:
         redis_memory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -376,11 +373,11 @@ class ChatMessageService:
         return response
 
     async def _generate_ai_response_stream(
-        self,
-        user_id: int,
-        session_id: int,
-        user_message: str,
-        file_id: str | None,
+            self,
+            user_id: int,
+            session_id: int,
+            user_message: str,
+            file_id: str | None,
     ) -> AsyncGenerator[str, None]:
         redis_memory: RedisChatMemory = self.redis_memory_factory(session_id)
         if not await redis_memory.has_cache():
@@ -411,7 +408,7 @@ class ChatMessageService:
         )
 
     async def _rag_search(self, query: str, file_id: str | None) -> str:
-        if not file_id or not self.milvus or not self.embedder:
+        if not file_id or not self.milvus:
             return ""
 
         try:
@@ -420,16 +417,8 @@ class ChatMessageService:
                 {MilvusField.FILE_ID.value: int(file_id)} if file_id.isdigit() else None
             )
 
-            query_vector = (await self.embedder.aembed_queries([query]))[0]
-            logger.info(
-                "RAG 查询 (即用户输入) 向量化完成: query='{}', vector_dim={}",
-                query,
-                len(query_vector),
-            )
-
             results = await self.milvus.search_hybrid(
                 query=query,
-                query_vector=query_vector,
                 k=settings.RAG_TOP_K,
                 filters=filters,
                 alpha=settings.RAG_RANKER_ALPHA,
@@ -457,7 +446,7 @@ class ChatMessageService:
         return ""
 
     async def _enqueue_memory_update(
-        self, user_id: int, session_id: int, user_message: str, ai_response: str
+            self, user_id: int, session_id: int, user_message: str, ai_response: str
     ) -> None:
         try:
             connection = await get_rabbitmq_connection()
@@ -481,11 +470,11 @@ class ChatMessageService:
             logger.error("长期记忆任务投递失败: {}", e)
 
     def _build_prompt(
-        self,
-        user_message: str,
-        evidence: str,
-        history: list[dict],
-        long_term_memory: str,
+            self,
+            user_message: str,
+            evidence: str,
+            history: list[dict],
+            long_term_memory: str,
     ) -> list[dict]:
         """
         构建 LLM 输入的 prompt，整合用户消息、RAG 证据、历史对话和长期记忆
@@ -511,7 +500,7 @@ class ChatMessageService:
         memory_limit = get_settings().REDIS_MEMORY_LIMIT
         prompt_text = USER_PROMPT_TEMPLATE.format(
             role_policies=memory_sections.get("role_policies")
-            or "你是一个专业的AI助手。",
+                          or "你是一个专业的AI助手。",
             task=memory_sections.get("task") or "回答用户问题。",
             state=memory_sections.get("state") or "暂无",
             rag_context=evidence or "（无检索结果）",

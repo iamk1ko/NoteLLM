@@ -6,6 +6,7 @@ import time
 from typing import Dict, Any, Optional, List
 
 from pymilvus import (
+    AnnSearchRequest,
     MilvusClient,
     CollectionSchema,
     DataType,
@@ -36,14 +37,14 @@ FILE_MD5_MAX_LENGTH = (
 
 class MilvusVectorStore:
     def __init__(
-            self,
-            *,
-            uri: str,
-            collection_name: str,
-            dim: int = 1024,
-            metric_type: str = "COSINE",
-            alias: str = "default",
-            embedder: Embedder | None = None,
+        self,
+        *,
+        uri: str,
+        collection_name: str,
+        dim: int = 1024,
+        metric_type: str = "COSINE",
+        alias: str = "default",
+        embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -439,7 +440,7 @@ class MilvusVectorStore:
             batch_size = get_settings().VS_BATCH_SIZE
             total_inserted = 0
             for i in range(0, len(entities), batch_size):
-                batch = entities[i: i + batch_size]
+                batch = entities[i : i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -542,11 +543,11 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-            self,
-            *,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query_vector: list[float],
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -592,11 +593,11 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-            self,
-            *,
-            query: str,
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        query: str,
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -642,101 +643,81 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-            self,
-            *,
-            query: str,
-            query_vector: list[float],
-            k: int = 5,
-            filters: Optional[Dict[str, Any]] = None,
-            alpha: float = 0.7,
+        self,
+        *,
+        query: str,
+        k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
+        alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
-        logger.info(f"混合检索开始，alpha={alpha}, top_k={k}")
-
-        # 并行执行向量检索和全文检索
-        dense_results, bm25_results = await asyncio.gather(
-            self.search_dense(query_vector=query_vector, k=k, filters=filters),
-            self.search_bm25(query=query, k=k, filters=filters),
-        )
-
-        merged: dict[str, dict[str, Any]] = {}
-
-        for result in dense_results:
-            self._merge_hybrid_result(merged, result, "dense")
-        for result in bm25_results:
-            self._merge_hybrid_result(merged, result, "bm25")
-        logger.debug(
-            "[自定义的合并方法] 混合检索结果合并完成，准备计算融合分数和排序..."
-        )
-
-        reranked: list[dict[str, Any]] = []
-        for entry in merged.values():
-            dense_score = float(entry.get("dense", 0.0) or 0.0)
-            bm25_score = float(entry.get("bm25", 0.0) or 0.0)
-            score = alpha * dense_score + (1 - alpha) * bm25_score
-
-            result_item = dict(entry.get("result") or {})
-            result_item["score"] = score
-            reranked.append(result_item)
-        reranked.sort(
-            key=lambda item_: float(item_.get("score", 0.0) or 0.0), reverse=True
-        )
-        logger.debug("[自定义的重排序方法] 混合检索结果重排序完成，准备截取 Top-k...")
-
-        final_results = reranked[:k]
         logger.info(
-            f"混合检索完成，耗时: {time.time() - start_time:.4f}s, 最终返回: {len(final_results)}"
-        )
-        return final_results
-
-    @staticmethod
-    def _merge_hybrid_result(
-            merged: dict[str, dict[str, Any]],
-            result: Dict[str, Any],
-            score_key: str,
-    ) -> None:
-        """
-        将单个检索结果合并到混合结果中，更新对应的分数
-
-        假设：
-        dense_results 返回 2 条：
-            A：file_id=1, chunk_index=0, score=0.9
-            B：file_id=1, chunk_index=1, score=0.8
-
-        bm25_results 返回 2 条：
-            A：file_id=1, chunk_index=0, score=12.0
-            C：file_id=2, chunk_index=0, score=9.0
-
-        合并过程（merged 以 key 为索引）：
-            1. 处理 dense A（key=1:0）
-               merged["1:0"] = {"result": A, "dense": 0.9, "bm25": 0.0}
-            2. 处理 dense B（key=1:1）
-               merged["1:1"] = {"result": B, "dense": 0.8, "bm25": 0.0}
-            3. 处理 bm25 A（key=1:0）
-               找到已有 merged["1:0"]，只更新 bm25 分数：
-               merged["1:0"]["bm25"] = 12.0
-            4. 处理 bm25 C（key=2:0）
-               merged["2:0"] = {"result": C, "dense": 0.0, "bm25": 9.0}
-
-        最终 merged 里有 3 个 key：A、B、C；其中 A 同时拥有 dense 和 bm25 分数，B 只有 dense，C 只有 bm25。
-        之后 search_hybrid() 会对每个 entry 计算融合分数：
-            score = alpha * dense + (1 - alpha) * bm25 然后按 score 排序取 Top-k。
-        """
-        meta = result.get(MilvusField.METADATA.value, {}) or {}
-        file_id = meta.get(MilvusField.FILE_ID.value)
-        chunk_index = meta.get(MilvusField.CHUNK_INDEX.value)
-        key = (
-            f"{file_id}:{chunk_index}" if file_id is not None else str(result.get("id"))
+            "混合检索开始 (Milvus hybrid_search), top_k={}, alpha(ignored)={}", k, alpha
         )
 
-        entry = merged.get(key)
-        if entry is None:
-            entry = {"result": result, "dense": 0.0, "bm25": 0.0}
-            merged[key] = entry
+        query_vector = (await self._require_embedding().aembed_queries([query]))[0]
+        logger.info(
+            "RAG 查询向量化完成: query='{}', vector_dim={}",
+            query,
+            len(query_vector),
+        )
 
-        current = float(entry.get(score_key, 0.0) or 0.0)
-        incoming = float(result.get("score") or 0.0)
-        entry[score_key] = max(current, incoming)
+        filter_expr = self._build_filter_expr(filters)
+
+        dense_params = {
+            "data": [query_vector],
+            "anns_field": MilvusField.DENSE_VECTOR.value,
+            "param": {"metric_type": "COSINE", "params": {"nprobe": 10}},
+            "limit": k,
+        }
+        sparse_params = {
+            "data": [query],
+            "anns_field": MilvusField.SPARSE_VECTOR.value,
+            "param": {"metric_type": "BM25", "params": {}},
+            "limit": k,
+        }
+
+        if filter_expr:
+            dense_params["expr"] = filter_expr
+            sparse_params["expr"] = filter_expr
+
+        reqs = [AnnSearchRequest(**dense_params), AnnSearchRequest(**sparse_params)]
+
+        ranker = Function(
+            name="rrf",
+            input_field_names=[],
+            function_type=FunctionType.RERANK,
+            params={"reranker": "rrf", "k": k},
+        )
+
+        output_fields = [
+            MilvusField.PK.value,
+            MilvusField.FILE_ID.value,
+            MilvusField.FILE_MD5.value,
+            MilvusField.CHUNK_INDEX.value,
+            MilvusField.PAGE_NO.value,
+            MilvusField.SECTION.value,
+            MilvusField.CONTENT.value,
+            MilvusField.METADATA.value,
+        ]
+
+        results = await self._maybe_await(
+            self._require_client().hybrid_search(
+                collection_name=self.collection_name,
+                reqs=reqs,
+                ranker=ranker,
+                limit=k,
+                output_fields=output_fields,
+            )
+        )
+
+        formatted = self._format_results(results)
+        logger.info(
+            "混合检索完成，耗时: {:.4f}s, 返回 Top-{} 条结果",
+            time.time() - start_time,
+            len(formatted),
+        )
+        return formatted
 
     @staticmethod
     def _build_filter_expr(filters: Optional[Dict[str, Any]]) -> str:
@@ -782,7 +763,6 @@ class MilvusVectorStore:
                         MilvusField.SECTION.value: entity.get(
                             MilvusField.SECTION.value
                         ),
-                        # MilvusField.CONTENT.value: entity.get(MilvusField.CONTENT.value), # 和上方的 "text" 字段重复了，这里就不放在 metadata 里了
                         MilvusField.METADATA.value: entity.get(
                             MilvusField.METADATA.value
                         ),
@@ -916,7 +896,9 @@ class MilvusVectorStore:
             if isinstance(result, dict):
                 deleted_count = int(result.get("delete_count", 0) or 0)
             logger.info(
-                "Milvus 向量删除完成：file_id={}, deleted_count={}", file_id, deleted_count
+                "Milvus 向量删除完成：file_id={}, deleted_count={}",
+                file_id,
+                deleted_count,
             )
             return deleted_count
         except Exception as e:

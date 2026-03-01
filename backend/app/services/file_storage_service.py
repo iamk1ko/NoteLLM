@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import RedisKey, MinIOBucket
 from app.core.logging import get_logger
 from app.core.rabbitmq_client import RABBITMQ_QUEUE_FILE_TASKS
+from app.core.settings import get_settings
 from app.crud import FileChunksCRUD, FileStorageCRUD
 from app.models import FileChunksStatus, FileStorageStatus
 from app.models import FileStorage, User
@@ -29,7 +30,7 @@ async def _put_object_with_retry(
         minio_client: Minio,
         temp_bucket: str,
         chunk_object_name: str,
-        payload,
+        payload: FileChunkUploadIn,
         file_obj,
         length: int,
         max_retries: int = 3,
@@ -180,70 +181,88 @@ class FileStorageService:
         # 0) 重试计数 key
         # 仅当不存在时创建，避免重复
         temp_bucket = MinIOBucket.FILE_UPLOAD_TEMP.value
-
-        bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(
-            user.id, payload.file_md5
-        )
-        file_storage_meta_key = RedisKey.FILE_STORAGE_METADATA.format(
-            user.id, payload.file_md5
-        )
+        bitmap_key = RedisKey.UPLOAD_FILE_CHUNKS_BITMAP.format(user.id, payload.file_md5)
+        file_storage_meta_key = RedisKey.FILE_STORAGE_METADATA.format(user.id, payload.file_md5)
+        upload_lock_key = RedisKey.FILE_UPLOAD_LOCK.format(user.id, payload.file_md5)
 
         existing_obj: FileStorage | None = None
 
-        # 优先用 Redis 判断是否已有任务；没有 Redis 则不走该分支
-        has_redis_task = False
+        lock_acquired = False
         if self.redis is not None:
             redis_client = cast(Any, self.redis)
-            has_redis_task = (
-                                 await redis_client.hget(file_storage_meta_key, "status")
-                             ) is not None
-
-        # 满足以下任一条件才查 DB：
-        # 1) Redis 表示已有任务：需要确认 DB 记录真实存在（防脏数据）
-        # 2) 没有 Redis：只能依赖 DB 判定是否已有任务
-        if has_redis_task or self.redis is None:
-            existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
-                self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+            settings = get_settings()
+            lock_acquired = await redis_client.set(
+                upload_lock_key,
+                "1",
+                ex=settings.REDIS_UPLOAD_LOCK_TTL_SECONDS,
+                nx=True,
             )
+            if not lock_acquired:
+                logger.warning(
+                    "上传锁占用中，跳过元数据初始化：user_id={}, file_md5={}",
+                    user.id,
+                    payload.file_md5,
+                )
 
-        # 最终是否“已存在任务”以 DB 为准；若 Redis 有但 DB 无，则视为不存在（后面会重新创建）
-        existing = existing_obj is not None
+        try:
+            # 优先用 Redis 判断是否已有任务；没有 Redis 则不走该分支
+            has_redis_task = False
+            if self.redis is not None:
+                redis_client = cast(Any, self.redis)
+                has_redis_task = (await redis_client.hget(file_storage_meta_key, "status")) is not None
 
-        # 若已有记录，但 content_type 缺失或为通用类型，或文件处于 FAILED，则更新
-        if existing_obj is not None:
-            should_update_type = existing_obj.content_type in (
-                None,
-                "",
-                "application/octet-stream",
-            )
-            should_update_status = existing_obj.status == FileStorageStatus.FAILED.value
-            if should_update_type or should_update_status:
-                if should_update_type:
-                    existing_obj.content_type = payload.content_type
-                if should_update_status:
-                    existing_obj.status = FileStorageStatus.UPLOADING.value
-                await self.db.commit()
+            # 满足以下任一条件才查 DB：
+            # 1) Redis 表示已有任务：需要确认 DB 记录真实存在（防脏数据）
+            # 2) 没有 Redis：只能依赖 DB 判定是否已有任务
+            if has_redis_task or self.redis is None:
+                existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
+                    self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+                )
 
-        # 第一片分片到达时创建原始文件元信息到 mysql 中
-        if not existing:
-            # 初始化文件元信息到数据库
-            file_save_dto = FileSaveDTO(
-                file_name=payload.file_name,
-                content_type=payload.content_type,
-                file_md5=payload.file_md5,
-                file_size=payload.file_size,
-                is_public=payload.is_public,
-                status=FileStorageStatus.UPLOADING.value,
-            )
-            existing_obj = await self.save_file_metadata(
-                user=user, payload=file_save_dto, bucket_name=temp_bucket
-            )
+            # 最终是否“已存在任务”以 DB 为准；若 Redis 有但 DB 无，则视为不存在（后面会重新创建）
+            existing = existing_obj is not None
 
-        # Ensure we have the file object to return ID
-        if existing_obj is None:
-            existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
-                self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
-            )
+            # 若已有记录，但 content_type 缺失或为通用类型，或文件处于 FAILED，则更新
+            if existing_obj is not None:
+                should_update_type = existing_obj.content_type in (
+                    None,
+                    "",
+                    "application/octet-stream",
+                )
+                should_update_status = (
+                        existing_obj.status == FileStorageStatus.FAILED.value
+                )
+                if should_update_type or should_update_status:
+                    if should_update_type:
+                        existing_obj.content_type = payload.content_type
+                    if should_update_status:
+                        existing_obj.status = FileStorageStatus.UPLOADING.value
+                    await self.db.commit()
+
+            # 第一片分片到达时创建原始文件元信息到 mysql 中
+            if not existing:
+                # 初始化文件元信息到数据库
+                file_save_dto = FileSaveDTO(
+                    file_name=payload.file_name,
+                    content_type=payload.content_type,
+                    file_md5=payload.file_md5,
+                    file_size=payload.file_size,
+                    is_public=payload.is_public,
+                    status=FileStorageStatus.UPLOADING.value,
+                )
+                existing_obj = await self.save_file_metadata(
+                    user=user, payload=file_save_dto, bucket_name=temp_bucket
+                )
+
+            # Ensure we have the file object to return ID
+            if existing_obj is None:
+                existing_obj = await FileStorageCRUD.get_file_by_object_name_async(
+                    self.db, user.id, f"{payload.file_md5}/{payload.file_name}"
+                )
+        finally:
+            if lock_acquired and self.redis is not None:
+                redis_client = cast(Any, self.redis)
+                await redis_client.delete(upload_lock_key)
 
         # 2) 写入分片元信息（状态 0-上传中-UPLOADING）
         chunk_object_name = f"{payload.file_md5}/chunk_{payload.chunk_index:06d}"
@@ -345,12 +364,13 @@ class FileStorageService:
                             FileStorageStatus.FAILED.value,  # Redis 中标记文件失败
                         )
                     if self.minio is not None:
+                        minio_client = self.minio
                         try:
-                            # MinIO remove_object needs to be offloaded too if we want to be pure async
+                            # MinIO remove_object 是阻塞的，放到线程池执行
                             loop = asyncio.get_running_loop()
                             await loop.run_in_executor(
                                 None,
-                                lambda: self.minio.remove_object(
+                                lambda: minio_client.remove_object(
                                     temp_bucket, chunk_object_name
                                 ),
                             )

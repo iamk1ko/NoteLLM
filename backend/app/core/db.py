@@ -43,9 +43,12 @@ def _create_async_engine() -> AsyncEngine:
 
     return create_async_engine(
         async_database_url,
-        echo=settings.DB_ECHO, # 生产环境建议关闭，开发环境可开启调试 SQL。
+        echo=settings.DB_ECHO,  # 生产环境建议关闭，开发环境可开启调试 SQL。
         future=True,
         pool_pre_ping=True,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
     )
 
 

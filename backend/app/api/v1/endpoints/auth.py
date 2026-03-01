@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.constants import RedisKey
+from app.core.db import get_async_db
 from app.core.logging import get_logger
 from app.core.redis_client import get_redis_client
 from app.core.settings import get_settings
-from app.core.db import get_async_db
 from app.crud import UserCRUD
 from app.models import User, UserStatus, UserRole
 from app.schemas.auth import RegisterIn, LoginIn, LogoutOut
 from app.schemas.response import ApiResponse
 from app.schemas.users import UserOut
-
-import uuid
 
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
@@ -22,8 +22,8 @@ logger = get_logger(__name__)
 
 @router.post("/auth/register", response_model=ApiResponse[UserOut])
 async def register(
-    payload: RegisterIn,
-    db: AsyncSession = Depends(get_async_db),
+        payload: RegisterIn,
+        db: AsyncSession = Depends(get_async_db),
 ) -> ApiResponse[UserOut]:
     """用户注册。
 
@@ -56,9 +56,9 @@ async def register(
 
 @router.post("/auth/login", response_model=ApiResponse[UserOut])
 async def login(
-    payload: LoginIn,
-    response: Response,
-    db: AsyncSession = Depends(get_async_db),
+        payload: LoginIn,
+        response: Response,
+        db: AsyncSession = Depends(get_async_db),
 ) -> ApiResponse[UserOut]:
     """用户登录。
 

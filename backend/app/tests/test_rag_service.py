@@ -39,11 +39,11 @@ class _MockEmbedder:
     def dim(self):
         return 768
 
-    def encode_queries(self, texts):
-        return {"dense": [[0.1] * 768]}
+    async def aencode_queries(self, texts):
+        return [[0.1] * 768]
 
-    def encode_documents(self, texts):
-        return {"dense": [[0.1] * 768]}
+    async def aencode_documents(self, texts):
+        return [[0.1] * 768]
 
 
 @pytest.mark.asyncio

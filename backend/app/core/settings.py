@@ -64,11 +64,20 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
     DB_DRIVER: str = "mysql+aiomysql"
     DB_ECHO: bool = False  # SQLAlchemy 是否输出执行的 SQL 语句到日志，生产环境建议关闭，开发环境可开启调试 SQL。
+    DB_POOL_SIZE: int = (
+        10  # 数据库连接池的大小，生产环境建议根据并发量调整，开发环境默认10通常足够。
+    )
+    DB_MAX_OVERFLOW: int = 20  # 连接池外最多允许的连接数，设置为0表示不允许超过 pool_size 的连接，生产环境可适当调整以应对突发流量。
+    DB_POOL_TIMEOUT: int = 30  # 获取连接的超时时间（秒），生产环境建议设置合理的超时时间以避免长时间等待，开发环境默认30秒通常足够。
 
     LOG_LEVEL: str = "INFO"
 
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_MAX_CONNECTIONS: int = 20
+    # 文件上传锁 TTL，单位秒。设置合理的过期时间可以防止死锁（例如上传过程中发生异常导致锁未释放），同时也允许在上传过程中其他请求等待锁释放。
+    REDIS_UPLOAD_LOCK_TTL_SECONDS: int = 300
+    # 会话锁 TTL，单位秒。用于控制同一用户的并发请求，避免短时间内重复创建会话或处理同一会话的多个请求。设置较短的 TTL 可以减少用户等待时间，同时也能有效防止重复操作。
+    REDIS_SESSION_LOCK_TTL_SECONDS: int = 10
 
     RABBITMQ_URL: str = "amqp://admin:admin@127.0.0.1:5672/admin_vhost"
 
@@ -83,16 +92,13 @@ class Settings(BaseSettings):
 
     # Vectorization settings
     EMBEDDING_DIM: int = 1024
-    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
-    # 可选：本地模型路径（优先使用本地路径，避免启动时拉取）
-    EMBEDDING_MODEL_PATH: str = ""
-    EMBEDDING_DEVICE: str = "cpu"
+    EMBEDDING_MODEL_NAME: str = "GLM-Embedding-3"
 
     VECTOR_COLLECTION: str = "knowledge_base"
     VECTOR_BATCH_SIZE: int = 64
     VECTOR_MEMORY_THRESHOLD_MB: int = 32
     VECTOR_TASK_TTL_SECONDS: int = 86400
-    AUTH_SESSION_TTL_SECONDS: int = 604800
+    AUTH_SESSION_TTL_SECONDS: int = 604800  # 7天，单位秒
 
     # Vector Store Config
     VS_CONTENT_MAX_LEN: int = 4096

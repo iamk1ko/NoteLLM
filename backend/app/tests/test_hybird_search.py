@@ -1,16 +1,20 @@
+import os
 from typing import Iterable
 
 import pytest
+from langchain_openai import OpenAIEmbeddings
 from unstructured.documents.elements import Element
 
 from app.schemas import TextChunk, ChunkRecord
-from app.services.vectorization import BgeM3Embedder, DocumentParser, TextChunker
+from app.services.vectorization import DocumentParser, TextChunker
 from app.services.vectorization import MilvusVectorStore
 
 
 @pytest.mark.integration
 async def test_hybrid_search():
-    client = MilvusVectorStore(uri="http://localhost:19530", collection_name="knowledge_base", dim=1024)
+    client = MilvusVectorStore(
+        uri="http://localhost:19530", collection_name="knowledge_base", dim=1024
+    )
     parser = DocumentParser()
     chunker = TextChunker(chunk_size=1000, overlap=200)
 
@@ -21,8 +25,9 @@ async def test_hybrid_search():
 
     # ================== 解析文档，得到 Element 列表 ==================
     file_path = r"E:\WorkSpace\PyCharmProject\My-RAG-Demo\backend\app\tests\data\C2\md\派聪明RAG知识库检索面试题预测.md"
-    elements: list[Element] = parser.parse(file_path=file_path,
-                                           content_type="text/markdown")
+    elements: list[Element] = parser.parse(
+        file_path=file_path, content_type="text/markdown"
+    )
 
     # ==================== 通过标题划分文本 ==================
     chunk_iter: Iterable[TextChunk] = chunker.chunk_elements_by_title(elements=elements)
@@ -61,9 +66,13 @@ async def test_hybrid_search():
     # ================== 执行 BM25 搜索和 Dense 搜索 ==================
     query_text = "为什么先用ES，而不是直接用FAISS？"
 
-    embedder = BgeM3Embedder(model_name="BAAI/bge-m3", device="cpu", use_fp16=False)
-    vector = embedder.encode_queries(texts=[query_text])
-    dense_vector = vector.get("dense")[0]
+    embedder = OpenAIEmbeddings(
+        model=os.environ.get("EMBEDDING_MODEL_NAME", "GLM-Embedding-3"),
+        dimensions=int(os.environ.get("EMBEDDING_DIM", "1024")),
+        base_url=os.environ.get("BLSC_BASE_URL", ""),
+        api_key=os.environ.get("BLSC_API_KEY", ""),
+    )
+    dense_vector = await embedder.aembed_query(text=query_text)
 
     res_bm25 = await client.search_bm25(query=query_text, k=1)
     res_dense = await client.search_dense(query_vector=dense_vector, k=1)
@@ -75,7 +84,9 @@ async def test_hybrid_search():
 
 @pytest.mark.integration
 async def test_hybrid_search_2():
-    client = MilvusVectorStore(uri="http://localhost:19530", collection_name="knowledge_base", dim=1024)
+    client = MilvusVectorStore(
+        uri="http://localhost:19530", collection_name="knowledge_base", dim=1024
+    )
     # ================== 确保 Milvus collection 已创建 ==================
     if not client.collection_created:
         await client._create_collection(force_recreate=False)
@@ -83,9 +94,13 @@ async def test_hybrid_search_2():
     # ================== 执行 BM25 搜索和 Dense 搜索 ==================
     query_text = "请详细描述完整的RAG系统架构，包括主要组件和数据流向"
 
-    embedder = BgeM3Embedder(model_name="BAAI/bge-m3", device="cpu", use_fp16=False)
-    vector = embedder.encode_queries(texts=[query_text])
-    dense_vector = vector.get("dense")[0]
+    embedder = OpenAIEmbeddings(
+        model=os.environ.get("EMBEDDING_MODEL_NAME", "GLM-Embedding-3"),
+        dimensions=int(os.environ.get("EMBEDDING_DIM", "1024")),
+        base_url=os.environ.get("BLSC_BASE_URL", ""),
+        api_key=os.environ.get("BLSC_API_KEY", ""),
+    )
+    dense_vector = await embedder.aembed_query(text=query_text)
 
     res_bm25 = await client.search_bm25(query=query_text, k=1)
     res_dense = await client.search_dense(query_vector=dense_vector, k=1)

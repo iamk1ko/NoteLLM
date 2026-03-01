@@ -20,7 +20,7 @@ from app.core.rabbitmq_client import (
 )
 from app.core.redis_client import get_redis_client
 from app.core.settings import get_settings
-from app.services.vectorization import BgeM3Embedder
+from app.services.vectorization.embedder import build_default_embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
@@ -73,19 +73,12 @@ class InfraProvider:
             self.rabbitmq = None
 
         try:
-            model_ref = settings.EMBEDDING_MODEL_PATH or settings.EMBEDDING_MODEL_NAME
-            logger.info(f"正在初始化 BGE-M3 嵌入模型: {model_ref}...")
-            self.embedder = BgeM3Embedder(
-                model_name=settings.EMBEDDING_MODEL_NAME,
-                model_path=settings.EMBEDDING_MODEL_PATH or None,
-                device=settings.EMBEDDING_DEVICE,
-                use_fp16=False,
+            self.embedder = build_default_embedder()
+            logger.info(
+                "嵌入模型初始化完成: model={}, dim={}",
+                settings.EMBEDDING_MODEL_NAME,
+                settings.EMBEDDING_DIM,
             )
-            logger.info(f"嵌入模型初始化完成。密集向量维度: {self.embedder.dim}")
-            if self.embedder.dim != settings.EMBEDDING_DIM:
-                raise ValueError(
-                    f"Embedding dim mismatch: model={self.embedder.dim}, config={settings.EMBEDDING_DIM}"
-                )
         except Exception as e:
             logger.error(f"初始化嵌入模型失败: {e}")
             self.embedder = None
@@ -138,7 +131,9 @@ class InfraProvider:
         # MinIO
         if self.minio is not None:
             try:
-                results["minio"] = bool(self.minio.bucket_exists(MinIOBucket.FILE_UPLOAD_TEMP.value))
+                results["minio"] = bool(
+                    self.minio.bucket_exists(MinIOBucket.FILE_UPLOAD_TEMP.value)
+                )
             except Exception:
                 results["minio"] = False
 

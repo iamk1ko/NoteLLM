@@ -24,7 +24,7 @@ from app.services.chat_message_service import ChatMessageService
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
-from app.services.vectorization.embedder import BgeM3Embedder
+from app.services.vectorization.embedder import Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
@@ -57,28 +57,26 @@ def get_redis_memory_factory_dep(redis_client: Redis = Depends(get_redis)):
 
 
 def get_markdown_memory_dep(
-        minio_client: Any = Depends(get_minio),
+    minio_client: Any = Depends(get_minio),
 ) -> MarkdownMemoryService:
     """Markdown 记忆服务依赖注入"""
     return MarkdownMemoryService(minio_client)
 
 
 def get_rag_service_dep(
-        milvus: MilvusVectorStore = Depends(get_milvus),
-        embedder: BgeM3Embedder = Depends(get_embedder)
-) -> tuple[MilvusVectorStore, BgeM3Embedder] | None:
+    milvus: MilvusVectorStore = Depends(get_milvus),
+    embedder: Embedder = Depends(get_embedder),
+) -> tuple[MilvusVectorStore, Embedder] | None:
     """RAG 服务依赖注入 - 返回 (milvus, embedder) 元组"""
     return milvus, embedder
 
 
 def get_chat_service(
-        db: AsyncSession = Depends(get_async_db),
-        llm_service: LLMService = Depends(get_llm_service_dep),
-        redis_memory_factory=Depends(get_redis_memory_factory_dep),
-        markdown_memory: MarkdownMemoryService = Depends(get_markdown_memory_dep),
-        rag_dep: tuple[MilvusVectorStore, BgeM3Embedder] | None = Depends(
-            get_rag_service_dep
-        ),
+    db: AsyncSession = Depends(get_async_db),
+    llm_service: LLMService = Depends(get_llm_service_dep),
+    redis_memory_factory=Depends(get_redis_memory_factory_dep),
+    markdown_memory: MarkdownMemoryService = Depends(get_markdown_memory_dep),
+    rag_dep: tuple[MilvusVectorStore, Embedder] | None = Depends(get_rag_service_dep),
 ) -> ChatMessageService:
     """ChatMessageService 工厂函数 - 注入所有依赖"""
     return ChatMessageService(
@@ -96,10 +94,10 @@ def get_chat_service(
     response_model=ApiResponse[ChatMessageOut],
 )
 async def send_message(
-        session_id: int,
-        payload: ChatMessageCreate,
-        current_user: User = Depends(get_current_user),
-        service: ChatMessageService = Depends(get_chat_service),
+    session_id: int,
+    payload: ChatMessageCreate,
+    current_user: User = Depends(get_current_user),
+    service: ChatMessageService = Depends(get_chat_service),
 ) -> ApiResponse[ChatMessageOut]:
     """发送消息（非流式，返回完整响应）"""
 
@@ -113,17 +111,17 @@ async def send_message(
 
 @router.post("/sessions/{session_id}/messages/stream")
 async def send_message_stream(
-        session_id: int,
-        payload: ChatMessageCreate,
-        current_user: User = Depends(get_current_user),
-        service: ChatMessageService = Depends(get_chat_service),
+    session_id: int,
+    payload: ChatMessageCreate,
+    current_user: User = Depends(get_current_user),
+    service: ChatMessageService = Depends(get_chat_service),
 ) -> StreamingResponse:
     """发送消息（流式响应，SSE）"""
 
     async def event_generator():
         try:
             async for token in service.send_message_stream(
-                    current_user, session_id, payload
+                current_user, session_id, payload
             ):
                 if token.startswith("Error:"):
                     yield f"data: {json.dumps({'error': token})}\n\n"
@@ -152,11 +150,11 @@ async def send_message_stream(
     response_model=ApiResponse[ChatMessageListResponse],
 )
 async def get_message_history(
-        session_id: int,
-        page: int = Query(1, ge=1, description="页码，从 1 开始"),
-        size: int = Query(20, ge=1, le=200, description="每页数量"),
-        current_user: User = Depends(get_current_user),
-        service: ChatMessageService = Depends(get_chat_service),
+    session_id: int,
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    size: int = Query(20, ge=1, le=200, description="每页数量"),
+    current_user: User = Depends(get_current_user),
+    service: ChatMessageService = Depends(get_chat_service),
 ) -> ApiResponse[ChatMessageListResponse]:
     """查询消息历史（分页）"""
 

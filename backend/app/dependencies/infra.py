@@ -8,7 +8,7 @@ from minio import Minio
 from redis.asyncio import Redis
 
 from app.core.app_state import get_app_state
-from app.services.vectorization import BgeM3Embedder
+from app.services.vectorization.embedder import Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 
@@ -51,7 +51,7 @@ def get_rabbitmq_connection(request: Request) -> AbstractRobustConnection:
 
 
 async def get_rabbitmq_channel(
-        request: Request,
+    request: Request,
 ) -> AsyncGenerator[AbstractChannel, None]:
     """获取 RabbitMQ Channel（依赖注入）。
 
@@ -79,7 +79,7 @@ def get_milvus(request: Request) -> MilvusVectorStore:
     return milvus
 
 
-def get_embedder(request: Request) -> BgeM3Embedder:
+def get_embedder(request: Request) -> Embedder:
     """获取 Embedder（依赖注入）。"""
 
     state = get_app_state(request.app)

@@ -5,6 +5,7 @@ from enum import Enum, unique
 class RedisKey(str, Enum):
     FILE_STORAGE_METADATA = "file_storage:meta:{}:{}"
     UPLOAD_FILE_CHUNKS_BITMAP = "upload:bitmap:{}:{}"
+    FILE_UPLOAD_LOCK = "upload:lock:{}:{}"  # {} 填写 user_id, file_md5
     FILE_VECTORIZATION_TASK_STATUS = "vector:task:{}"
     FILE_VECTORIZATION_TASK_ERROR = "vector:task:error:{}"
     FILE_VECTORIZATION_TASK_STAGE = "vector:task:stage:{}"

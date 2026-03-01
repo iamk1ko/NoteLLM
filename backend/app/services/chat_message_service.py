@@ -5,24 +5,24 @@ import time
 from collections.abc import AsyncGenerator, Sequence
 from typing import Callable
 
+import aio_pika
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import MilvusField
+from app.core.constants import MilvusField, RedisKey
 from app.core.logging import get_logger
-from app.core.settings import get_settings
-from app.prompts import load_prompt
 from app.core.rabbitmq_client import (
     RABBITMQ_QUEUE_CHAT_MEMORY_TASKS,
     get_rabbitmq_connection,
 )
-import aio_pika
+from app.core.settings import get_settings
 from app.crud import ChatMessageCRUD, ChatSessionCRUD
 from app.models import ChatMessage, User
+from app.prompts import load_prompt
 from app.schemas.chat_message import ChatMessageCreate
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
-from app.services.vectorization.embedder import BgeM3Embedder
+from app.services.vectorization.embedder import Embedder
 from app.services.vectorization.vector_store import MilvusVectorStore
 
 logger = get_logger(__name__)
@@ -39,7 +39,7 @@ class ChatMessageService:
         redis_memory_factory: Callable[[int], RedisChatMemory],
         markdown_memory: MarkdownMemoryService,
         milvus: MilvusVectorStore | None = None,
-        embedder: BgeM3Embedder | None = None,
+        embedder: Embedder | None = None,
     ):
         self.db = db
         self.llm_service = llm_service
@@ -197,6 +197,26 @@ class ChatMessageService:
             user_message.id,
         )
 
+        # 基于 Redis 的简易会话锁，避免同一会话并发写入造成乱序
+        lock_key = RedisKey.CHAT_SESSION_CACHE_FLAG.format(session_id) + ":lock"
+        lock_acquired = False
+        if self.redis_memory_factory is not None:
+            try:
+                redis_client = self.redis_memory_factory(session_id).redis
+                settings = get_settings()
+                lock_acquired = await redis_client.set(
+                    lock_key,
+                    "1",
+                    ex=settings.REDIS_SESSION_LOCK_TTL_SECONDS,
+                    nx=True,
+                )
+                if not lock_acquired:
+                    logger.warning(
+                        "会话锁占用中，继续流式响应: session_id={}", session_id
+                    )
+            except Exception:
+                lock_acquired = False
+
         # 流式调用 LLM，同时yield每个token
         full_response = ""
         token_count = 0
@@ -223,44 +243,52 @@ class ChatMessageService:
             yield f"Error: {str(e)}"
             return
 
-        # 保存 AI 响应到数据库
-        if full_response:
-            ai_message = await ChatMessageCRUD.create_message_async(
-                db=self.db,
-                session_id=session_id,
-                user_id=user.id,
-                content=full_response,
-                role="assistant",
-                model_name=get_settings().LLM_MODEL,
-            )
+        try:
+            # 保存 AI 响应到数据库
+            if full_response:
+                ai_message = await ChatMessageCRUD.create_message_async(
+                    db=self.db,
+                    session_id=session_id,
+                    user_id=user.id,
+                    content=full_response,
+                    role="assistant",
+                    model_name=get_settings().LLM_MODEL,
+                )
 
-            # 将 AI 消息追加到 Redis 中
-            await self.redis_memory_factory(session_id).append_message(
-                {
-                    "id": ai_message.id,
-                    "session_id": ai_message.session_id,
-                    "user_id": ai_message.user_id,
-                    "role": ai_message.role,
-                    "content": ai_message.content,
-                    "model_name": ai_message.model_name,
-                    "token_count": ai_message.token_count,
-                    "create_time": ai_message.create_time.isoformat()
-                    if ai_message.create_time
-                    else "",
-                }
-            )
-            total_elapsed = int((time.time() - start_time) * 1000)
-            logger.info(
-                "流式消息成功: session_id={}, user_id={}, ai_msg_id={}, "
-                "总耗时={} s, 调用LLM耗时={}, token数量={}, 相应消息总长度={}",
-                session_id,
-                user.id,
-                ai_message.id,
-                total_elapsed / 1000,  # 转换为秒
-                llm_elapsed,
-                token_count,
-                len(full_response),
-            )
+                # 将 AI 消息追加到 Redis 中
+                await self.redis_memory_factory(session_id).append_message(
+                    {
+                        "id": ai_message.id,
+                        "session_id": ai_message.session_id,
+                        "user_id": ai_message.user_id,
+                        "role": ai_message.role,
+                        "content": ai_message.content,
+                        "model_name": ai_message.model_name,
+                        "token_count": ai_message.token_count,
+                        "create_time": ai_message.create_time.isoformat()
+                        if ai_message.create_time
+                        else "",
+                    }
+                )
+                total_elapsed = int((time.time() - start_time) * 1000)
+                logger.info(
+                    "流式消息成功: session_id={}, user_id={}, ai_msg_id={}, "
+                    "总耗时={} s, 调用LLM耗时={}, token数量={}, 相应消息总长度={}",
+                    session_id,
+                    user.id,
+                    ai_message.id,
+                    total_elapsed / 1000,  # 转换为秒
+                    llm_elapsed,
+                    token_count,
+                    len(full_response),
+                )
+        finally:
+            if lock_acquired and self.redis_memory_factory is not None:
+                try:
+                    redis_client = self.redis_memory_factory(session_id).redis
+                    await redis_client.delete(lock_key)
+                except Exception:
+                    logger.warning("释放会话锁失败: session_id={}", session_id)
 
     async def get_message_history(
         self,
@@ -392,7 +420,7 @@ class ChatMessageService:
                 {MilvusField.FILE_ID.value: int(file_id)} if file_id.isdigit() else None
             )
 
-            query_vector = self.embedder.encode_queries([query])["dense"][0]
+            query_vector = (await self.embedder.aembed_queries([query]))[0]
             logger.info(
                 "RAG 查询 (即用户输入) 向量化完成: query='{}', vector_dim={}",
                 query,
@@ -527,5 +555,3 @@ class ChatMessageService:
                 sections[current_key] += line + "\n"
 
         return {k: v.strip() for k, v in sections.items()}
-
-    # 记忆摘要解析已迁移到消费者中

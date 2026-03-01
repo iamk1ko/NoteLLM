@@ -2,40 +2,62 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pymilvus.model.hybrid.bge_m3 import BGEM3EmbeddingFunction
+from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
+
+from app.core.settings import get_settings
 
 
 class Embedder(Protocol):
     @property
     def dim(self) -> int: ...
 
-    def encode_documents(self, texts: list[str]) -> dict: ...
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]: ...
 
-    def encode_queries(self, texts: list[str]) -> dict: ...
+    async def aembed_queries(self, texts: list[str]) -> list[list[float]]: ...
 
 
-class BgeM3Embedder:
+class OpenAIEmbeddingAdapter:
     def __init__(
-        self,
-        *,
-        model_name: str,
-        device: str,
-        use_fp16: bool,
-        model_path: str | None = None,
+            self,
+            *,
+            model: str,
+            api_key: str,
+            base_url: str,
+            dimensions: int,
     ) -> None:
-        resolved_name = model_path or model_name
-        self._model = BGEM3EmbeddingFunction(
-            model_name=resolved_name,
-            device=device,
-            use_fp16=use_fp16,
+        self._dimensions = dimensions
+        self._client = OpenAIEmbeddings(
+            model=model,
+            api_key=SecretStr(api_key),
+            base_url=base_url,
+            dimensions=dimensions,
         )
 
     @property
     def dim(self) -> int:
-        return self._model.dim["dense"]
+        return self._dimensions
 
-    def encode_documents(self, texts: list[str]) -> dict:
-        return self._model.encode_documents(texts)
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        return await self._client.aembed_documents(texts=texts)
 
-    def encode_queries(self, texts: list[str]) -> dict:
-        return self._model.encode_queries(texts)
+    async def aembed_queries(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        vectors = []
+        for text in texts:
+            vectors.append(await self._client.aembed_query(text=text))
+        return vectors
+
+
+def build_default_embedder() -> OpenAIEmbeddingAdapter:
+    settings = get_settings()
+    if not settings.BLSC_API_KEY or not settings.BLSC_BASE_URL:
+        raise RuntimeError("LLM API 未配置，无法初始化 Embedding 客户端")
+
+    return OpenAIEmbeddingAdapter(
+        model=settings.EMBEDDING_MODEL_NAME,
+        api_key=settings.BLSC_API_KEY,
+        base_url=settings.BLSC_BASE_URL,
+        dimensions=settings.EMBEDDING_DIM,
+    )

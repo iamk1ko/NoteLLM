@@ -19,7 +19,7 @@ from app.core.constants import MilvusField
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.schemas import ChunkRecord
-from app.services.vectorization.embedder import BgeM3Embedder, Embedder
+from app.services.vectorization.embedder import Embedder, build_default_embedder
 
 logger = get_logger(__name__)
 
@@ -108,20 +108,17 @@ class MilvusVectorStore:
             raise
 
     def _setup_embedding_model(self) -> Optional[Embedder]:
-        """初始化默认的嵌入模型"""
+        """初始化默认的嵌入模型（OpenAIEmbeddings 远程调用）"""
         if self.embedder is not None:
             return self.embedder  # 如果已经有了，就直接用
 
         settings = get_settings()
-        model_ref = settings.EMBEDDING_MODEL_PATH or settings.EMBEDDING_MODEL_NAME
-        logger.info(f"正在初始化 BGE-M3 嵌入模型: {model_ref}...")
-        embedder = BgeM3Embedder(
-            model_name=settings.EMBEDDING_MODEL_NAME,
-            model_path=settings.EMBEDDING_MODEL_PATH or None,
-            device=settings.EMBEDDING_DEVICE,
-            use_fp16=False,
+        logger.info(
+            "初始化 Embedding 客户端: model={}, dim={} (remote)",
+            settings.EMBEDDING_MODEL_NAME,
+            settings.EMBEDDING_DIM,
         )
-        logger.info(f"嵌入模型初始化完成。密集向量维度: {embedder.dim}")
+        embedder = build_default_embedder()
         if embedder.dim != self.dim:
             raise ValueError(
                 f"Embedding dim mismatch: model={embedder.dim}, config={self.dim}"
@@ -408,12 +405,12 @@ class MilvusVectorStore:
             logger.info(f"正在生成 {len(chunks)} 个文档的向量embeddings...")
             start_time = time.time()
             texts: list[str] = [chunk.content or "" for chunk in chunks]
-            vectors = self._require_embedding().encode_documents(texts)
+            vectors = await self._require_embedding().aembed_documents(texts)
             logger.info(f"向量生成完成，耗时: {time.time() - start_time:.2f}s")
 
             # 3. 准备插入数据
             entities = []
-            dense_vectors = vectors.get("dense", [])
+            dense_vectors = vectors
             for i, chunk in enumerate(chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
@@ -500,12 +497,12 @@ class MilvusVectorStore:
             # 生成向量
             logger.debug("正在生成新文档的 embeddings...")
             texts: list[str] = [chunk.content or "" for chunk in new_chunks]
-            vectors = self._require_embedding().encode_documents(texts)
+            vectors = await self._require_embedding().aembed_documents(texts)
             logger.debug(f"Embeddings 生成耗时: {time.time() - start_time:.2f}s")
 
             # 准备插入数据
             entities = []
-            dense_vectors = vectors.get("dense", [])
+            dense_vectors = vectors
             for i, chunk in enumerate(new_chunks):
                 dense_vector = dense_vectors[i] if i < len(dense_vectors) else None
                 entity = {
@@ -678,11 +675,11 @@ class MilvusVectorStore:
             bm25_score = float(entry.get("bm25", 0.0) or 0.0)
             score = alpha * dense_score + (1 - alpha) * bm25_score
 
-            item = dict(entry.get("result") or {})
-            item["score"] = score
-            reranked.append(item)
+            result_item = dict(entry.get("result") or {})
+            result_item["score"] = score
+            reranked.append(result_item)
         reranked.sort(
-            key=lambda item_: float(item.get("score", 0.0) or 0.0), reverse=True
+            key=lambda item_: float(item_.get("score", 0.0) or 0.0), reverse=True
         )
         logger.debug("[自定义的重排序方法] 混合检索结果重排序完成，准备截取 Top-k...")
 

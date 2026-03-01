@@ -861,3 +861,22 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 [项目中文的README文档创建]
 我在"docs/asset"文件夹中截图了几张NoteLLM项目的前端界面展示.png图片。
 我现在想在github的仓库中创建出展示NoteLLM项目的readme文档。有没有好的文档的结构建议，结合"docs/API接口文档.md"文档中内容，能让别人能够清晰的知道我项目的特色亮点。
+
+[优化与改进README文档中的内容]
+我希望README文档中的内容再丰富一点，可以适当用一点emoji表情。显得主题比较有趣，可以模仿github上比较热门项目的风格。
+此外，关于核心流程图部分，可以更加详细一点，你可以阅读后端项目的源码，尽量展示出每个业务流程的具体细节。
+
+[后端接口性能瓶颈分析]
+后端api接口代码位于"backend/app/api/v1/endpoints"
+后端业务层代码位于"backend/app/services"
+
+我想知道目前我后端设计的代码架构是否能应对高并发场景下的请求。以及该后端的架构是否存在明显可能影响性能的地方，以及在面临高并发场景下并发访问冲突等问题。
+
+[优化项目中embedding模型的使用方式]
+目前项目使用的embedding model是用的"from pymilvus.model.hybrid.bge_m3 import BGEM3EmbeddingFunction"中提供好的方法，且是利用huggingface拉去模型到本地部署的embedding model。由于本地机器性能较差，所以导致向量化时间很长且会占用大量的cpu资源，并且pymilvus中只提供了"BGEM3EmbeddingFunction", "MGTEEmbeddingFunction"这两种向量化模型，后期更换比较受限。
+
+目前我采用langchain_openai提供的openai的远程调用api的方法来解决。具体使用"from langchain_openai import OpenAIEmbeddings"通过传入不同的`model`参数可以很好的替换不同的向量化模型。但是目前我的旧的代码与老的方式(BGEM3EmbeddingFunction)高度耦合了，且langchain_openai提供的api接口与pymilvus提供的api接口不一致，所以不好直接替换。除此之外，之前老的方法在第一次使用向量化模型时，需要先初始化，将模型的相关配置从远程（huggingface）拉去到本地，再加载模型权重，且还需要注入到fastapi中方便在其他地方依赖注入使用（保证单例），非常的麻烦。现在新的方法就可以省去这写步骤了，只要api-key没过期有额度就直接远程调用就可以了。
+
+我在代码"backend/app/tests/test_embedding_model.py"的"test_glm3_embedding_model_by_langchain_openai()"方法中简单测试了向量化的方法是可以使用的。
+
+因此，我需要改动/删除我代码中有关于老的（pymilvus提供的方式）使用向量化模型方法的代码。

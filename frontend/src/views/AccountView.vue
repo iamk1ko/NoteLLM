@@ -3,67 +3,79 @@
     <div v-if="user" class="account-layout fade-in">
       
       <!-- Left Column: Profile Card -->
-      <div class="card profile-card">
-        <div class="card-header">
-          <h2 class="title">> 个人档案_</h2>
-          <div class="status-badge" :class="user.status === 1 ? 'active' : 'inactive'">
-            {{ user.status === 1 ? 'ONLINE' : 'OFFLINE' }}
+      <div class="card profile-card retro-window">
+        <div class="window-header">
+          <h2 class="window-title">> 个人档案.exe</h2>
+          <div class="status-indicator" :class="user.status === 1 ? 'online' : 'offline'">
+            <div class="status-dot"></div>
+            <span>{{ user.status === 1 ? 'ONLINE' : 'OFFLINE' }}</span>
           </div>
         </div>
 
         <div class="profile-body">
           <!-- Avatar Display -->
-          <div class="avatar-wrapper">
-            <div class="pixel-avatar" :class="{'editable': isEditing}" @click="isEditing && toggleAvatarModal()">
-              <!-- Use SVG for system avatars (negative IDs) -->
+          <div class="avatar-section">
+            <div class="pixel-avatar-box" :class="{'editable': isEditing}" @click="isEditing && toggleAvatarModal()">
               <div v-if="isSystemAvatar(currentAvatarId)" v-html="getSystemAvatarSvg(currentAvatarId)" class="avatar-svg"></div>
-              <!-- Fallback for initials or real image if we had one -->
-              <span v-else>{{ user.username.substring(0, 2).toUpperCase() }}</span>
+              <span v-else class="avatar-text">{{ user.username.substring(0, 2).toUpperCase() }}</span>
               
               <div v-if="isEditing" class="edit-overlay">
-                <span>CHANGE</span>
+                <span>[更换]</span>
               </div>
             </div>
-            <p class="role-badge">[{{ user.role.toUpperCase() }}]</p>
+            <div class="role-badge" :class="'role-' + user.role">{{ user.role.toUpperCase() }}</div>
           </div>
 
           <!-- User Info Details -->
-          <div class="info-list">
-             <div class="info-item">
-               <label>UID</label>
-               <span>#{{ user.id.toString().padStart(6, '0') }}</span>
+          <div class="info-grid">
+             <div class="info-row">
+               <span class="info-label">UID_</span>
+               <span class="info-value highlight-text">#{{ user.id.toString().padStart(6, '0') }}</span>
              </div>
-             <div class="info-item">
-               <label>USERNAME</label>
-               <span>{{ user.username }}</span>
+             <div class="info-row">
+               <span class="info-label">USER_</span>
+               <span class="info-value">{{ user.username }}</span>
              </div>
-             <div class="info-item">
-               <label>EMAIL</label>
-               <div v-if="!isEditing">{{ user.email || 'unset' }}</div>
-               <input v-else v-model="editForm.email" class="pixel-input small" placeholder="Enter email..." />
+             <div class="info-row">
+               <span class="info-label">NAME_</span>
+               <div v-if="!isEditing" class="info-value">{{ user.name || 'N/A' }}</div>
+               <input v-else v-model="editForm.name" class="pixel-input" placeholder="Name..." />
+             </div>
+             <div class="info-row">
+               <span class="info-label">MAIL_</span>
+               <div v-if="!isEditing" class="info-value">{{ user.email || '未设置' }}</div>
+               <input v-else v-model="editForm.email" class="pixel-input" placeholder="Email..." />
              </div>
           </div>
 
           <!-- Bio Section -->
           <div class="bio-section">
-            <label>BIO_</label>
-            <div v-if="!isEditing" class="bio-content">
-              {{ user.bio || 'No biography set.' }}
+            <div class="bio-header">
+              <span class="info-label">BIO.TXT</span>
             </div>
-            <textarea v-else v-model="editForm.bio" class="pixel-input" rows="4" placeholder="Tell us about yourself..."></textarea>
+            <div v-if="!isEditing" class="bio-content scroll-box">
+              {{ user.bio || '还没有填写个人简介。' }}
+            </div>
+            <textarea v-else v-model="editForm.bio" class="pixel-input bio-input" rows="4" placeholder="介绍一下你自己..."></textarea>
           </div>
 
           <!-- Action Buttons -->
           <div class="actions">
             <template v-if="!isEditing">
-              <button class="pixel-btn primary" @click="startEdit">EDIT PROFILE</button>
-              <button class="pixel-btn secondary" @click="handleLogout">LOGOUT</button>
+              <button class="btn btn-primary" @click="startEdit">
+                <span class="icon">✏️</span> 编辑资料
+              </button>
+              <button class="btn btn-danger" @click="handleLogout">
+                <span class="icon">🚪</span> 退出登录
+              </button>
             </template>
             <template v-else>
-              <button class="pixel-btn success" @click="saveEdit" :disabled="saving">
-                {{ saving ? 'SAVING...' : 'SAVE CHANGES' }}
+              <button class="btn btn-success" @click="saveEdit" :disabled="saving">
+                {{ saving ? '保存中...' : '💾 保存更改' }}
               </button>
-              <button class="pixel-btn danger" @click="cancelEdit" :disabled="saving">CANCEL</button>
+              <button class="btn" @click="cancelEdit" :disabled="saving">
+                ✖ 取消
+              </button>
             </template>
           </div>
         </div>
@@ -72,45 +84,48 @@
       <!-- Right Column: Stats & Quota -->
       <div class="stats-column">
         <!-- Storage Quota Card -->
-        <div class="card stats-card">
-          <div class="card-header small">
-            <h3>STORAGE_QUOTA</h3>
+        <div class="card stats-card retro-window">
+          <div class="window-header small-header">
+            <span class="window-title">SYS_QUOTA</span>
           </div>
           <div class="card-body">
             <div class="quota-visual">
-              <div class="progress-track">
-                <div class="progress-fill" :style="{ width: storagePercent + '%' }"></div>
-              </div>
               <div class="quota-text">
-                <span class="used">{{ formatBytes(quota.used_bytes) }}</span>
-                <span class="separator">/</span>
-                <span class="total">{{ formatBytes(quota.total_bytes) }}</span>
+                <span>STORAGE</span>
+                <span class="quota-numbers"><span class="used">{{ formatBytes(quota.used_bytes) }}</span> / {{ formatBytes(quota.total_bytes) }}</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill" :style="{ width: storagePercent + '%' }" :class="{'warning': storagePercent > 80, 'danger': storagePercent > 95}"></div>
               </div>
             </div>
-            <div class="stat-row">
-              <span>Files Uploaded:</span>
-              <span>{{ quota.file_count }}</span>
+            <div class="stat-list">
+              <div class="stat-item">
+                <span class="stat-label">> FILES_UPLOADED</span>
+                <span class="stat-value">{{ quota.file_count }}</span>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- System Stats / Placeholder -->
-        <div class="card stats-card">
-          <div class="card-header small">
-            <h3>SYSTEM_STATUS</h3>
+        <div class="card stats-card retro-window">
+          <div class="window-header small-header">
+            <span class="window-title">SERVER_INFO</span>
           </div>
           <div class="card-body">
-            <div class="stat-row">
-              <span>Server:</span>
-              <span class="status-ok">ONLINE</span>
-            </div>
-             <div class="stat-row">
-              <span>Latency:</span>
-              <span>24ms</span>
-            </div>
-            <div class="stat-row">
-              <span>Version:</span>
-              <span>v1.0.0-beta</span>
+            <div class="stat-list">
+              <div class="stat-item">
+                <span class="stat-label">> STATUS</span>
+                <span class="stat-value status-ok">ONLINE</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">> LATENCY</span>
+                <span class="stat-value">24ms</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">> CORE_VERSION</span>
+                <span class="stat-value">v1.2.0</span>
+              </div>
             </div>
           </div>
         </div>
@@ -120,26 +135,29 @@
 
     <!-- Loading State -->
     <div v-else class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>LOADING PROFILE DATA...</p>
+      <div class="blink-text">LOADING_PROFILE_DATA...</div>
     </div>
 
     <!-- Avatar Selection Modal -->
     <div v-if="showAvatarModal" class="modal-overlay" @click.self="showAvatarModal = false">
-      <div class="modal-content card">
-        <h3>SELECT AVATAR</h3>
-        <div class="avatar-grid">
-           <div 
-            v-for="avatar in systemAvatars" 
-            :key="avatar.id"
-            class="avatar-option"
-            :class="{ active: editForm.avatar_file_id === avatar.id }"
-            @click="selectAvatar(avatar.id)"
-          >
-            <div class="avatar-preview" v-html="avatar.svg"></div>
+      <div class="card modal-content retro-window">
+        <div class="window-header">
+          <span class="window-title">SELECT_AVATAR</span>
+          <button class="close-btn" @click="showAvatarModal = false">X</button>
+        </div>
+        <div class="modal-body">
+          <div class="avatar-grid">
+             <div 
+              v-for="avatar in systemAvatars" 
+              :key="avatar.id"
+              class="avatar-option"
+              :class="{ active: editForm.avatar_file_id === avatar.id }"
+              @click="selectAvatar(avatar.id)"
+            >
+              <div class="avatar-preview" v-html="avatar.svg"></div>
+            </div>
           </div>
         </div>
-        <button class="pixel-btn secondary full-width" @click="showAvatarModal = false">CLOSE</button>
       </div>
     </div>
 
@@ -167,13 +185,12 @@ const editForm = reactive({
   name: '',
   email: '',
   bio: '',
-  avatar_file_id: 0 // Default to 0 or current
+  avatar_file_id: 0
 });
 
-// --- Mock Quota Data (If backend doesn't provide it yet) ---
+// --- Mock Quota Data ---
 const quota = computed<Quota>(() => {
   if (user.value?.quota) return user.value.quota;
-  // Mock fallback
   return {
     total_bytes: 1024 * 1024 * 1024 * 2, // 2GB
     used_bytes: 1024 * 1024 * 450, // ~450MB
@@ -193,18 +210,17 @@ const currentAvatarId = computed(() => {
 
 // --- System Avatars Data ---
 const systemAvatars = [
-  { id: -1, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="#ef4444"><path d="M2 2h4v1h1v4h-1v1h-4v-1h-1v-4h1v-1z"/></svg>` },
-  { id: -2, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="#3b82f6"><path d="M1 1h2v1h-1v1h-1v2h1v1h1v1h2v-1h1v-1h1v-2h-1v-1h-1v-1h-2z"/></svg>` },
-  { id: -3, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="#10b981"><rect x="2" y="2" width="4" height="4"/><rect x="1" y="3" width="6" height="2"/><rect x="3" y="1" width="2" height="6"/></svg>` },
-  { id: -4, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="#f59e0b"><path d="M0 0h2v2h2v-2h2v2h2v2h-2v2h2v2h-2v-2h-2v2h-2v-2h-2v-2h2v-2h-2z"/></svg>` },
-  { id: -5, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="#8b5cf6"><circle cx="4" cy="4" r="3"/></svg>` }
+  { id: -1, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="var(--nl-danger)"><path d="M2 2h4v1h1v4h-1v1h-4v-1h-1v-4h1v-1z"/></svg>` },
+  { id: -2, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="var(--nl-primary)"><path d="M1 1h2v1h-1v1h-1v2h1v1h1v1h2v-1h1v-1h1v-2h-1v-1h-1v-1h-2z"/></svg>` },
+  { id: -3, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="var(--nl-accent)"><rect x="2" y="2" width="4" height="4"/><rect x="1" y="3" width="6" height="2"/><rect x="3" y="1" width="2" height="6"/></svg>` },
+  { id: -4, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="var(--nl-warning)"><path d="M0 0h2v2h2v-2h2v2h2v2h-2v2h2v2h-2v-2h-2v2h-2v-2h-2v-2h2v-2h-2z"/></svg>` },
+  { id: -5, svg: `<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" fill="var(--nl-secondary)"><circle cx="4" cy="4" r="3"/></svg>` }
 ];
 
 // --- Actions ---
-
 const startEdit = () => {
   if (user.value) {
-    editForm.name = user.value.name;
+    editForm.name = user.value.name || '';
     editForm.email = user.value.email || '';
     editForm.bio = user.value.bio || '';
     editForm.avatar_file_id = user.value.avatar_file_id || 0;
@@ -227,12 +243,11 @@ const saveEdit = async () => {
       bio: editForm.bio,
       avatar_file_id: editForm.avatar_file_id
     });
-    // Update store locally
     userStore.user = updatedUser;
-    ElMessage.success('PROFILE UPDATED');
+    ElMessage.success('资料已更新');
     isEditing.value = false;
   } catch (e) {
-    ElMessage.error('UPDATE FAILED');
+    ElMessage.error('更新失败');
   } finally {
     saving.value = false;
   }
@@ -249,23 +264,19 @@ const toggleAvatarModal = () => {
 
 const selectAvatar = (id: number) => {
   editForm.avatar_file_id = id;
-  // showAvatarModal.value = false; // Optional: close on select or keep open
 };
 
 // --- Helpers ---
-
 const formatBytes = (bytes: number, decimals = 2) => {
   if (!bytes) return '0 B';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-const isSystemAvatar = (id: number) => {
-  return id < 0;
-};
+const isSystemAvatar = (id: number) => id < 0;
 
 const getSystemAvatarSvg = (id: number) => {
   const avatar = systemAvatars.find(a => a.id === id);
@@ -280,336 +291,379 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* Variables inherited from global styles (assumed) or redefined here */
 .account-container {
   display: flex;
   justify-content: center;
-  padding: 40px 20px;
-  min-height: 80vh;
+  max-width: 1000px;
+  margin: 0 auto;
 }
 
 .account-layout {
   display: flex;
-  gap: 24px;
+  gap: 32px;
   width: 100%;
-  max-width: 1000px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
-/* Card Styles */
-.card {
-  background: white;
-  border: 4px solid black;
-  box-shadow: 8px 8px 0px rgba(0,0,0,0.2);
-  display: flex;
-  flex-direction: column;
+/* Retro Window Styles */
+.retro-window {
+  padding: 0;
+  overflow: hidden;
+  background: var(--nl-surface);
 }
 
-.card-header {
-  background: #f3f4f6;
-  border-bottom: 4px solid black;
-  padding: 16px 24px;
+.window-header {
+  background: var(--nl-border);
+  color: var(--nl-surface);
+  padding: 12px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.card-header.small {
-  padding: 12px 16px;
+.small-header {
+  padding: 8px 16px;
 }
 
-.card-header h3 {
+.window-title {
+  font-family: var(--font-display);
+  font-size: 16px;
   margin: 0;
-  font-family: 'Courier New', monospace;
-  font-weight: bold;
+  color: #fff;
+  letter-spacing: 1px;
 }
 
-.profile-card {
-  flex: 2;
-  min-width: 300px;
+.small-header .window-title {
+  font-size: 14px;
 }
 
-.stats-column {
-  flex: 1;
-  min-width: 250px;
+/* Status Indicator */
+.status-indicator {
   display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.stats-card {
-  width: 100%;
-}
-
-.title {
-  font-family: 'Courier New', monospace;
-  margin: 0;
-  font-size: 24px;
-  font-weight: 900;
-}
-
-.status-badge {
-  font-family: monospace;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
   font-size: 12px;
+  background: #333;
   padding: 4px 8px;
-  border: 2px solid black;
-  background: #9ca3af;
-  color: white;
-  font-weight: bold;
+  border: 2px solid #555;
 }
 
-.status-badge.active {
-  background: #10b981;
+.status-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--nl-danger);
 }
 
+.status-indicator.online .status-dot {
+  background: var(--nl-accent);
+  box-shadow: 0 0 8px var(--nl-accent);
+}
+
+.status-indicator.online {
+  color: var(--nl-accent);
+}
+
+/* Card Body */
 .profile-body {
   padding: 32px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
+}
+
+.card-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Columns */
+.profile-card {
+  flex: 1 1 600px;
+}
+
+.stats-column {
+  flex: 1 1 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
 }
 
 /* Avatar */
-.avatar-wrapper {
+.avatar-section {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
-.pixel-avatar {
-  width: 128px;
-  height: 128px;
-  background: #e5e7eb;
-  border: 4px solid black;
+.pixel-avatar-box {
+  width: 120px;
+  height: 120px;
+  background: var(--nl-bg);
+  border: 4px solid var(--nl-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 48px;
-  font-weight: bold;
-  font-family: monospace;
   position: relative;
-  overflow: hidden;
+  box-shadow: var(--nl-shadow-solid);
 }
 
-.pixel-avatar.editable {
+.pixel-avatar-box.editable {
   cursor: pointer;
+  transition: transform 0.1s;
 }
 
-.pixel-avatar.editable:hover .edit-overlay {
+.pixel-avatar-box.editable:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px var(--nl-secondary);
+}
+
+.pixel-avatar-box.editable:hover .edit-overlay {
   opacity: 1;
 }
 
 .edit-overlay {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6);
-  color: white;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  color: var(--nl-surface);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--font-display);
   font-size: 14px;
   opacity: 0;
   transition: opacity 0.2s;
 }
 
 .avatar-svg {
-  width: 100%;
-  height: 100%;
+  width: 80%;
+  height: 80%;
+}
+
+.avatar-text {
+  font-family: var(--font-display);
+  font-size: 48px;
+  color: var(--nl-text-main);
 }
 
 .role-badge {
-  font-family: monospace;
-  font-weight: bold;
-  background: black;
-  color: white;
-  padding: 2px 8px;
+  font-family: var(--font-display);
   font-size: 12px;
+  padding: 4px 12px;
+  border: 2px solid var(--nl-border);
+  background: var(--nl-bg-grid);
+  box-shadow: 2px 2px 0px var(--nl-border);
 }
 
-/* Info List */
-.info-list {
+.role-admin {
+  background: var(--nl-primary);
+  color: white;
+}
+
+/* User Info Grid */
+.info-grid {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border-top: 2px dashed #ccc;
-  border-bottom: 2px dashed #ccc;
-  padding: 20px 0;
+  background: var(--nl-bg);
+  padding: 24px;
+  border: 2px solid var(--nl-border);
+  box-shadow: inset 4px 4px 0px rgba(0,0,0,0.05);
 }
 
-.info-item {
+.info-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-family: monospace;
-  font-size: 16px;
 }
 
-.info-item label {
-  color: #6b7280;
+.info-label {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--nl-text-secondary);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-family: var(--font-body);
+  font-size: 20px;
+  color: var(--nl-text-main);
   font-weight: bold;
 }
 
-/* Bio */
+.highlight-text {
+  color: var(--nl-secondary);
+}
+
+/* Bio Section */
 .bio-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.bio-section label {
-  font-family: monospace;
-  font-weight: bold;
-  color: #6b7280;
+.bio-header {
+  background: var(--nl-border);
+  padding: 4px 12px;
+  display: inline-block;
+  align-self: flex-start;
 }
 
-.bio-content {
-  font-family: monospace;
+.bio-header .info-label {
+  color: var(--nl-surface);
+  width: auto;
+}
+
+.scroll-box {
+  background: #fff;
+  border: 2px solid var(--nl-border);
+  padding: 16px;
+  font-family: var(--font-body);
+  font-size: 18px;
+  line-height: 1.6;
+  min-height: 100px;
   white-space: pre-wrap;
-  line-height: 1.5;
-  background: #f9fafb;
-  padding: 12px;
-  border: 2px solid #e5e7eb;
+  box-shadow: inset 2px 2px 0px rgba(0,0,0,0.1);
 }
 
 /* Form Inputs */
 .pixel-input {
-  width: 100%;
-  padding: 12px;
-  border: 2px solid black;
-  font-family: monospace;
-  font-size: 16px;
+  flex: 1;
   background: #fff;
-  transition: all 0.2s;
+  border: 2px solid var(--nl-border);
+  padding: 8px 12px;
+  font-family: var(--font-body);
+  font-size: 18px;
+  outline: none;
 }
 
 .pixel-input:focus {
-  background: #f0fdf4;
-  outline: none;
-  box-shadow: 4px 4px 0px rgba(0,0,0,0.1);
+  border-color: var(--nl-primary);
+  background: #f0f5ff;
 }
 
-.pixel-input.small {
-  padding: 6px;
+.bio-input {
+  width: 100%;
+  padding: 16px;
+  resize: vertical;
+  min-height: 100px;
 }
 
-/* Buttons */
+/* Actions */
 .actions {
   display: flex;
   gap: 16px;
   margin-top: 16px;
 }
 
-.pixel-btn {
+.actions .btn {
   flex: 1;
-  padding: 12px;
-  font-family: monospace;
-  font-weight: bold;
-  text-transform: uppercase;
-  border: 2px solid black;
-  cursor: pointer;
-  background: white;
-  box-shadow: 4px 4px 0px black;
-  transition: all 0.1s;
 }
 
-.pixel-btn:hover:not(:disabled) {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px black;
-}
+.btn-success { background: var(--nl-accent); color: white; }
+.btn-danger { background: var(--nl-danger); color: white; }
 
-.pixel-btn:active:not(:disabled) {
-  transform: translate(0, 0);
-  box-shadow: 0 0 0 black;
-}
-
-.pixel-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.pixel-btn.primary { background: #3b82f6; color: white; }
-.pixel-btn.secondary { background: #e5e7eb; color: black; }
-.pixel-btn.success { background: #10b981; color: white; }
-.pixel-btn.danger { background: #ef4444; color: white; }
-.pixel-btn.full-width { width: 100%; margin-top: 24px; }
-
-/* Stats Card Styles */
-.card-body {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
+/* Stats Visuals */
 .quota-visual {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.progress-track {
-  height: 24px;
-  background: #e5e7eb;
-  border: 2px solid black;
-  width: 100%;
-}
-
-.progress-fill {
-  height: 100%;
-  background: #10b981; /* Green */
-  border-right: 2px solid black;
-  width: 0%;
-  transition: width 0.5s ease-out;
+  gap: 12px;
 }
 
 .quota-text {
   display: flex;
   justify-content: space-between;
-  font-family: monospace;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 12px;
+}
+
+.used {
+  color: var(--nl-primary);
+}
+
+.progress-track {
+  height: 24px;
+  background: var(--nl-bg);
+  border: 2px solid var(--nl-border);
+  box-shadow: inset 2px 2px 0px rgba(0,0,0,0.2);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--nl-primary);
+  border-right: 2px solid var(--nl-border);
+  transition: width 0.5s steps(10);
+}
+
+.progress-fill.warning { background: var(--nl-warning); }
+.progress-fill.danger { background: var(--nl-danger); }
+
+/* Stat List */
+.stat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-body);
+  font-size: 18px;
+  border-bottom: 2px dotted var(--nl-bg-grid);
+  padding-bottom: 8px;
+}
+
+.stat-label {
+  color: var(--nl-text-secondary);
   font-weight: bold;
 }
 
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  font-family: monospace;
-  font-size: 14px;
-  border-bottom: 1px dashed #e5e7eb;
-  padding-bottom: 4px;
+.stat-value {
+  font-weight: bold;
 }
 
 .status-ok {
-  color: #10b981;
-  font-weight: bold;
+  color: var(--nl-accent);
 }
 
 /* Modal */
 .modal-overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.5);
+  inset: 0;
+  background: rgba(0,0,0,0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
 }
 
 .modal-content {
   width: 90%;
   max-width: 400px;
-  padding: 24px;
-  background: white;
 }
 
-.modal-content h3 {
-  margin-top: 0;
-  margin-bottom: 24px;
-  text-align: center;
-  font-family: monospace;
+.close-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  font-family: var(--font-display);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  color: var(--nl-danger);
+}
+
+.modal-body {
+  padding: 24px;
+  background: var(--nl-bg);
 }
 
 .avatar-grid {
@@ -621,21 +675,26 @@ onMounted(() => {
 .avatar-option {
   width: 64px;
   height: 64px;
-  border: 2px solid #e5e7eb;
+  background: white;
+  border: 2px solid var(--nl-border);
   cursor: pointer;
-  padding: 4px;
-  transition: all 0.2s;
+  padding: 8px;
+  transition: transform 0.1s;
+  box-shadow: 2px 2px 0px var(--nl-border);
 }
 
 .avatar-option:hover {
-  transform: scale(1.1);
-  border-color: #3b82f6;
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0px var(--nl-primary);
 }
 
 .avatar-option.active {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  box-shadow: 0 0 0 2px #3b82f6;
+  background: var(--nl-primary);
+  border-color: var(--nl-border);
+}
+
+.avatar-option.active svg {
+  fill: white !important;
 }
 
 .avatar-preview {
@@ -643,14 +702,32 @@ onMounted(() => {
   height: 100%;
 }
 
-/* Responsive */
+/* Loading */
+.loading-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+}
+
+.blink-text {
+  font-family: var(--font-display);
+  font-size: 20px;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 @media (max-width: 768px) {
-  .account-layout {
+  .info-row {
     flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
-  
-  .profile-card, .stats-column {
-    min-width: 100%;
+  .info-label {
+    width: 100%;
   }
 }
 </style>

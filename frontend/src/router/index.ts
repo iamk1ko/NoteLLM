@@ -65,8 +65,9 @@ router.beforeEach(async (to, from, next) => {
   // Set document title
   document.title = `${to.meta.title} - NoteLLM` || "NoteLLM";
 
-  // Check auth status if not already loaded (e.g. page refresh)
-  if (!userStore.isLoggedIn && !userStore.loading) {
+  // Check auth status if not already checked (e.g. page refresh)
+  // 只有在认证状态未检查时才进行检查
+  if (!userStore.authChecked) {
     await userStore.checkAuth();
   }
 

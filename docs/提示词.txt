@@ -880,3 +880,15 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 我在代码"backend/app/tests/test_embedding_model.py"的"test_glm3_embedding_model_by_langchain_openai()"方法中简单测试了向量化的方法是可以使用的。
 
 因此，我需要改动/删除我代码中有关于老的（pymilvus提供的方式）使用向量化模型方法的代码。
+
+[前端查询文件状态优化]
+由于之前使用的是本地部署的向量化模型，在添加文件时向量化耗时会非常的久。
+现在采用的是调用远程api来完成向量化，向量化时间减少了很长的时间。
+所以导致目前其实后端已近完成了向量化，但是前端由于会等待一段时间才去检查文档向量化的状态，会一直阻塞住。
+现在需要优化一下。
+
+后端部分日志：
+26-03-01 23:13:10 | SpawnProcess-1 | MainThread | vector_store.add_documents:501 | DEBUG: Embeddings 生成耗时: 1.73s 
+2026-03-01 23:13:10 | SpawnProcess-1 | MainThread | vector_store.add_documents:528 | INFO: 正在向集合 knowledge_base 插入 29 条数据... 
+2026-03-01 23:13:11 | SpawnProcess-1 | MainThread | vector_store.add_documents:536 | INFO: 插入完成，耗时: 0.06s 
+2026-03-01 23:13:11 | SpawnProcess-1 | MainThread | vector_store.add_documents:537 | INFO: 新文档添加流程总耗时: 1.78s 

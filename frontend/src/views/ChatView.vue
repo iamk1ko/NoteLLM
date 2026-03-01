@@ -460,7 +460,7 @@ const startPolling = () => {
   pollingTimer = setInterval(async () => {
     // Simulate progress while waiting for status update
     if (vectorProgress.value < 90) {
-      vectorProgress.value += (100 - vectorProgress.value) * 0.1;
+      vectorProgress.value += (100 - vectorProgress.value) * 0.2; // 加快进度条模拟
     }
     
     if (detail.value?.id) {
@@ -479,7 +479,7 @@ const startPolling = () => {
         stopPolling();
       }
     }
-  }, 2000); // Poll every 2 seconds
+  }, 1000); // 从 2 秒缩短为 1 秒，适应更快的远程向量化API
 };
 
 const stopPolling = () => {

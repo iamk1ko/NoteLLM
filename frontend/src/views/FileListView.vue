@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFilesStore } from '@/store/files';
 import { deleteFile, getFilePreview, reVectorizeFile } from '@/services/files';
@@ -110,6 +110,38 @@ const previewData = ref({
 const loading = computed(() => filesStore.loading);
 const files = computed(() => filesStore.list); // 从Store获取文件列表
 
+// Polling for processing files
+let pollingTimer: ReturnType<typeof setInterval> | null = null;
+
+const startPolling = () => {
+  if (pollingTimer) return;
+  // 每隔1秒静默刷新一次列表
+  pollingTimer = setInterval(() => {
+    filesStore.refreshFiles();
+  }, 1000);
+};
+
+const stopPolling = () => {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
+};
+
+// 监听文件列表变化，如果有状态为1(处理中)的文件，则开始轮询
+watch(files, (newFiles) => {
+  const hasProcessingFiles = newFiles.some(f => f.status === 1);
+  if (hasProcessingFiles) {
+    startPolling();
+  } else {
+    stopPolling();
+  }
+}, { deep: true });
+
+onUnmounted(() => {
+  stopPolling();
+});
+
 // 计算属性：根据关键词过滤文件列表 (前端过滤)
 const filteredFiles = computed(() => {
   if (!keyword.value) return files.value;
@@ -136,10 +168,11 @@ const goChat = (file: FileItem) => {
 
 const handleReVectorize = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确定要重新向量化此文件吗？', '重新向量化', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm('确定要重新向量化此文件吗？', '> 重新向量化.bat', {
+      confirmButtonText: '确定 [ENTER]',
+      cancelButtonText: '取消 [ESC]',
       type: 'info',
+      customClass: 'pixel-msg-box',
     });
     
     await reVectorizeFile(id);
@@ -194,11 +227,12 @@ const closePreview = () => {
  */
 const confirmDelete = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确定要永久删除此文件吗？', '确认删除', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm('确定要永久删除此文件吗？', '> 删除文件.exe', {
+      confirmButtonText: '删除 [ENTER]',
+      cancelButtonText: '取消 [ESC]',
       type: 'warning',
-      customClass: 'pixel-msg-box' // 使用自定义复古样式
+      customClass: 'pixel-msg-box', // 使用自定义复古样式
+      showClose: true
     });
     
     // 执行删除

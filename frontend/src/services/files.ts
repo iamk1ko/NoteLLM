@@ -160,14 +160,14 @@ export const uploadFile = async (
   // 5. Poll for Completion (Wait for Merge & Vectorization)
   if (onStatusChange) onStatusChange('merging');
   
-  // Optimization: Vectorization takes time (usually 10s+). 
-  // Strategy: Initial delay + Adaptive polling to reduce backend load.
+  // Optimization: Vectorization now happens very quickly via remote API (~1-2s).
+  // Strategy: Start polling almost immediately with a short interval, then back off slightly.
   
-  // Step A: Initial wait (Give server some time to start processing)
-  await new Promise(r => setTimeout(r, 2000)); 
+  // Step A: Minimal initial wait
+  await new Promise(r => setTimeout(r, 500)); 
 
-  let delay = 1000; // Start with 1s interval
-  const maxDelay = 5000; // Cap at 5s interval
+  let delay = 500; // Start with 500ms interval
+  const maxDelay = 3000; // Cap at 3s interval
   const maxTime = 180000; // 3 minutes timeout
   let elapsedTime = 0;
 
@@ -197,9 +197,8 @@ export const uploadFile = async (
      await new Promise(r => setTimeout(r, delay));
      elapsedTime += delay;
 
-     // Adaptive backoff: Increase delay slightly each time, up to maxDelay
-     // This reduces request frequency for long-running tasks
-     delay = Math.min(delay + 1000, maxDelay);
+     // Adaptive backoff: Increase delay slightly each time
+     delay = Math.min(delay + 500, maxDelay);
   }
 
   throw new Error("Upload timeout: File processing taking too long.");

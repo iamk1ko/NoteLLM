@@ -42,6 +42,24 @@ export const useFilesStore = defineStore("files", {
       }
     },
     /**
+     * Refresh File List (Silent update for polling)
+     */
+    async refreshFiles(params: { page?: number; size?: number; include_public?: boolean } = {}) {
+      try {
+        // Use current pagination state if not provided
+        const queryParams = {
+          page: params.page || this.pagination.page,
+          size: params.size || this.pagination.size,
+          include_public: params.include_public
+        };
+        const { items, total, page, size } = await fetchFiles(queryParams);
+        this.list = items;
+        this.pagination = { page, size, total };
+      } catch (e) {
+        console.error("Failed to refresh file list", e);
+      }
+    },
+    /**
      * Load Single File Detail
      * @param id File ID
      */

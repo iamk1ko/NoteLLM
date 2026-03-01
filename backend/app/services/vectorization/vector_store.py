@@ -36,14 +36,14 @@ FILE_MD5_MAX_LENGTH = (
 
 class MilvusVectorStore:
     def __init__(
-        self,
-        *,
-        uri: str,
-        collection_name: str,
-        dim: int = 1024,
-        metric_type: str = "COSINE",
-        alias: str = "default",
-        embedder: Embedder | None = None,
+            self,
+            *,
+            uri: str,
+            collection_name: str,
+            dim: int = 1024,
+            metric_type: str = "COSINE",
+            alias: str = "default",
+            embedder: Embedder | None = None,
     ):
         self.collection_created = False  # 标记集合是否已创建，避免重复创建
         self.uri = uri
@@ -439,7 +439,7 @@ class MilvusVectorStore:
             batch_size = get_settings().VS_BATCH_SIZE
             total_inserted = 0
             for i in range(0, len(entities), batch_size):
-                batch = entities[i : i + batch_size]
+                batch = entities[i: i + batch_size]
                 await self._maybe_await(
                     self._require_client().insert(
                         collection_name=self.collection_name, data=batch
@@ -542,11 +542,11 @@ class MilvusVectorStore:
             return False
 
     async def search_dense(
-        self,
-        *,
-        query_vector: list[float],
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query_vector: list[float],
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -592,11 +592,11 @@ class MilvusVectorStore:
             return []
 
     async def search_bm25(
-        self,
-        *,
-        query: str,
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
+            self,
+            *,
+            query: str,
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         try:
@@ -642,13 +642,13 @@ class MilvusVectorStore:
             return []
 
     async def search_hybrid(
-        self,
-        *,
-        query: str,
-        query_vector: list[float],
-        k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
-        alpha: float = 0.7,
+            self,
+            *,
+            query: str,
+            query_vector: list[float],
+            k: int = 5,
+            filters: Optional[Dict[str, Any]] = None,
+            alpha: float = 0.7,
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         logger.info(f"混合检索开始，alpha={alpha}, top_k={k}")
@@ -691,9 +691,9 @@ class MilvusVectorStore:
 
     @staticmethod
     def _merge_hybrid_result(
-        merged: dict[str, dict[str, Any]],
-        result: Dict[str, Any],
-        score_key: str,
+            merged: dict[str, dict[str, Any]],
+            result: Dict[str, Any],
+            score_key: str,
     ) -> None:
         """
         将单个检索结果合并到混合结果中，更新对应的分数
@@ -916,7 +916,7 @@ class MilvusVectorStore:
             if isinstance(result, dict):
                 deleted_count = int(result.get("delete_count", 0) or 0)
             logger.info(
-                "Milvus 向量删除完成：file_id={}, deleted={}", file_id, deleted_count
+                "Milvus 向量删除完成：file_id={}, deleted_count={}", file_id, deleted_count
             )
             return deleted_count
         except Exception as e:

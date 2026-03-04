@@ -918,7 +918,19 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 聊天功能模块入口: "backend/app/api/v1/endpoints/chat_messages.py"
 聊天功能模块的核心业务代码: "backend/app/services/chat_message_service.py"
 额外服务：
-    1. 向量化服务与RAG检索："backend/app/services/vectorization"。包含redis、milvus、mysql等使用。
-  2. llm api调用对话功能："backend/app/services/llm"。
-  3. 长期记忆管理功能: "backend/app/services/memory" 。目前还是初步设计阶段，未来设想引入agent后，为agent充当长期记忆支持。
+  1. 向量化服务与RAG检索："backend/app/services/vectorization"。包含redis、milvus、mysql等使用。
+  2. llm api调用对话功能："backend/app/services/llm"。主要用与调用api进行对话功能实现。
+  3. 长期记忆管理功能: "backend/app/services/memory" 。目前还是初步设计阶段，未来设想引入agent后，为agent充当长期记忆支持。通过构建markdown文档来充当agent的长期记忆，并存储与minio服务器中。
+
+目前业务的一些问题:
+  1. 用户不管发送什么信息，都会出发RAG的向量检索的流程，哪怕是一句简单的问候（比如：你好、你好呀等）
+  2. 目前项目还算引入agent，目前仅仅是只调用一次llm api就结束当前用户查询的RAG流程。并非多轮循环、或ReAct、Plan-And-Solve的agent架构。我希望引入agent，它能自主决策/判断去帮助用户完成某些功能。
+
+## 希望可以改进的地方
+1. 当前NoteLLM项目主要还是基于RAG和llm api的对话系统。还称不上、不算是智能体项目，底层后端设计并不能让llm具备自主决策或判断的能力。
+2. 当前项目有关可以体现出智能体功能的页面或功能并未设计，我不知道还可以增加哪些功能来体现智能体。
+3. 我希望利用langchain或langgraph来构建整个智能体的搭建流程。且代码符合最佳实践、每个模块功能职责明确，且能够结合项目现有模块或已有功能，不要重复增加重复的功能或模块。
+4. 引入agent模块/功能后，有完整详细的中文的"Agent模块设计指南.md"文档（可以起一个更加符合的名字），方便其他开发人员理解和学习。
+
+
 

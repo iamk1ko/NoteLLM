@@ -36,6 +36,12 @@ async def _handle_message(message: AbstractIncomingMessage, topology) -> None:
 
 
 async def _update_memory(payload: dict[str, Any]) -> None:
+    """
+    TODO: 目前这个函数的功能还比较简单，并非一个实时的“记忆更新”，而是一个基于用户输入和 AI 回复的“记忆总结”。后续可以逐步增强它的功能，例如：
+        - 目前它只是简单地把用户输入和 AI 回复一起总结成一个新的记忆文本，但未来可以设计成一个更智能的“记忆管理器”，它可以根据对话的上下文和历史，智能地决定哪些信息需要被保留、更新或删除，而不仅仅是简单地总结。
+        - 目前它的输入是用户消息和 AI回复的文本，但未来可以扩展它的输入，包含更多的上下文信息，例如用户的情绪状态、对话的意图、相关的外部事件等，这些都可以帮助它更准确地更新记忆。
+        - 目前它的输出是一个新的记忆文本，但未来可以设计成一个更结构化的记忆对象，包含不同类型的信息（例如事实、观点、情感等），并且可以支持更复杂的查询和推理功能。
+    """
     user_id = int(payload["user_id"])
     session_id = int(payload["session_id"])
     user_message = payload.get("user_message", "")

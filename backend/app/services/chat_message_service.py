@@ -19,6 +19,7 @@ from app.crud import ChatMessageCRUD, ChatSessionCRUD
 from app.models import ChatMessage, User
 from app.prompts import load_prompt
 from app.schemas.chat_message import ChatMessageCreate
+from app.services.agent.graph import AgentState, ChatAgentGraph
 from app.services.llm.service import LLMService
 from app.services.memory.markdown_memory import MarkdownMemoryService
 from app.services.memory.redis_memory import RedisChatMemory
@@ -346,30 +347,16 @@ class ChatMessageService:
             user_message: str,
             file_id: str | None,
     ) -> str:
-        redis_memory = self.redis_memory_factory(session_id)
-        if not await redis_memory.has_cache():
-            await redis_memory.load_from_mysql(self.db)
-        history = await redis_memory.get_context_for_llm()
-
-        evidence = await self._rag_search(user_message, file_id)
-
-        try:
-            long_term_memory = await self.markdown_memory.load_memory(
-                user_id, session_id
-            )
-        except Exception as e:
-            logger.warning("长期记忆加载失败，降级为短期记忆: {}", e)
-            long_term_memory = ""
-
-        prompt_messages = self._build_prompt(
-            user_message, evidence, history, long_term_memory
+        # Agent 负责意图分类与 RAG 决策，减少无意义检索
+        graph = self._create_agent_graph()
+        state = AgentState(
+            user_id=user_id,
+            session_id=session_id,
+            user_message=user_message,
+            file_id=file_id,
         )
-        response = await self.llm_service.chat(prompt_messages)
-
-        # Redis 已在创建消息时写入，无需重复写入
-
+        response = await graph.run_once(state)
         await self._enqueue_memory_update(user_id, session_id, user_message, response)
-
         return response
 
     async def _generate_ai_response_stream(
@@ -379,29 +366,17 @@ class ChatMessageService:
             user_message: str,
             file_id: str | None,
     ) -> AsyncGenerator[str, None]:
-        redis_memory: RedisChatMemory = self.redis_memory_factory(session_id)
-        if not await redis_memory.has_cache():
-            await redis_memory.load_from_mysql(self.db)
-        history = await redis_memory.get_context_for_llm()
-
-        try:
-            evidence = await self._rag_search(user_message, file_id)
-        except Exception as e:
-            logger.warning("RAG 检索失败，降级为无检索结果: {}", e)
-            evidence = ""
-
-        try:
-            long_term_memory = await self.markdown_memory.load_memory(user_id, session_id)
-        except Exception as e:
-            logger.warning("长期记忆加载失败，降级为 Redis 中存储的短期记忆。错误信息: {}", e)
-            long_term_memory = ""
-
-        prompt_messages = self._build_prompt(
-            user_message, evidence, history, long_term_memory
+        # 流式输出仍保持 SSE 行为，Agent 只负责生成 prompt
+        graph = self._create_agent_graph()
+        state = AgentState(
+            user_id=user_id,
+            session_id=session_id,
+            user_message=user_message,
+            file_id=file_id,
         )
 
         full_response = ""
-        async for token in self.llm_service.chat_stream(prompt_messages):
+        async for token in graph.run_stream(state):
             full_response += token
             yield token
 
@@ -445,6 +420,22 @@ class ChatMessageService:
             logger.warning("RAG 检索失败: {}", e)
 
         return ""
+
+    def _create_agent_graph(self) -> ChatAgentGraph:
+        async def load_history(session_id: int) -> list[dict]:
+            redis_memory = self.redis_memory_factory(session_id)
+            if not await redis_memory.has_cache():
+                await redis_memory.load_from_mysql(self.db)
+            return await redis_memory.get_context_for_llm()
+
+        return ChatAgentGraph(
+            llm_service=self.llm_service,
+            markdown_memory=self.markdown_memory,
+            milvus=self.milvus,
+            build_prompt=self._build_prompt,
+            rag_search=self._rag_search,
+            load_history=load_history,
+        )
 
     async def _enqueue_memory_update(
             self, user_id: int, session_id: int, user_message: str, ai_response: str
@@ -510,6 +501,7 @@ class ChatMessageService:
             user_message=user_message,
             output=memory_sections.get("output") or "直接输出回答内容。",
         )
+        logger.info("已成功构建完整 LLM Prompt。")
 
         return [
             {"role": "system", "content": SYSTEM_PROMPT},

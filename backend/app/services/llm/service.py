@@ -28,26 +28,29 @@ class LLMService:
         self.api_key = api_key
         self.base_url = base_url
 
-    def _create_llm(self) -> ChatOpenAI:
+    def _create_llm(
+            self,
+            *,
+            temperature: float | None = None,
+            streaming: bool = True,
+    ) -> ChatOpenAI:
         """
         创建 LLM 实例
 
         Notes:
-            LangChain 会对某些已知参数（例如 max_tokens）发出告警：
-            如果通过 model_kwargs 传入，会提示“应显式指定”。因此这里改为显式参数。
+            streaming=True 时用于流式输出。
         """
         return ChatOpenAI(
             api_key=SecretStr(self.api_key),
             base_url=f"{self.base_url}/v1/",
             model=self.model,
-            temperature=self.temperature,
-            streaming=True,  # 启用流式输出
-            max_tokens=self.max_tokens,
+            temperature=self.temperature if temperature is None else temperature,
+            streaming=streaming,
         )
 
     async def chat(self, messages: list[dict]) -> str:
         """同步调用 LLM，返回完整响应"""
-        llm = self._create_llm()
+        llm = self._create_llm(streaming=False)
 
         # 转换消息格式
         langchain_messages = self._convert_messages(messages)
@@ -58,7 +61,7 @@ class LLMService:
 
     async def chat_stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
         """流式调用 LLM yield 每个 token"""
-        llm = self._create_llm()
+        llm = self._create_llm(streaming=True)
 
         # 转换消息格式
         langchain_messages = self._convert_messages(messages)
@@ -68,7 +71,23 @@ class LLMService:
             if content:
                 yield str(content)
 
-    def _convert_messages(self, messages: list[dict]) -> list[BaseMessage]:
+    async def chat_with_overrides(
+            self,
+            messages: list[dict],
+            *,
+            temperature: float | None = None,
+    ) -> str:
+        """带参数覆盖的 LLM 调用，用于轻量分类场景"""
+        llm = self._create_llm(
+            streaming=False,
+            temperature=temperature,
+        )
+        langchain_messages = self._convert_messages(messages)
+        response = await llm.ainvoke(langchain_messages)
+        return str(response.content)
+
+    @staticmethod
+    def _convert_messages(messages: list[dict]) -> list[BaseMessage]:
         """将字典格式的消息转换为 LangChain 消息对象"""
         result = []
         for msg in messages:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from langgraph.graph import END, StateGraph
+from langgraph.types import RetryPolicy
 from pydantic import BaseModel
 
 from app.core.logging import get_logger
@@ -62,12 +63,18 @@ class ChatAgentGraph:
 
         self.graph = self._build_graph()
 
+        # 显示Agent流程图（仅在开发环境中）
+        # from IPython.display import Image, display
+        # display(Image(self.graph.get_graph(xray=True).draw_mermaid_png()))
+
     def _build_graph(self):
         builder = StateGraph(AgentState)
 
-        builder.add_node("classify_intent", self._classify_intent)
+        builder.add_node("classify_intent", self._classify_intent,
+                         retry_policy=RetryPolicy(max_attempts=3, initial_interval=1.0))
         builder.add_node("load_history", self._load_history)
-        builder.add_node("load_long_term_memory", self._load_long_term_memory)
+        builder.add_node("load_long_term_memory", self._load_long_term_memory,
+                         retry_policy=RetryPolicy(max_attempts=3, initial_interval=1.0))
         builder.add_node("retrieve_rag", self._retrieve_rag)
         builder.add_node("build_prompt", self._build_prompt)
 
@@ -103,9 +110,9 @@ class ChatAgentGraph:
 
     async def _classify_intent(self, state: AgentState) -> AgentState:
         logger.info("开始意图分类，用户消息: {}", state.user_message)
-        result = await self.intent_classifier.classify(state.user_message)
-        logger.info("意图分类结果: {}", result)
-        state.need_retrieval = result.need_retrieval
+        need_retrieval = await self.intent_classifier.classify(state.user_message)
+        logger.info("意图分类结果: {}", need_retrieval)
+        state.need_retrieval = need_retrieval
         return state
 
     async def _load_history(self, state: AgentState) -> AgentState:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import SecretStr, BaseModel, Field
 
 from app.core.logging import get_logger
 
@@ -77,14 +77,18 @@ class LLMService:
             *,
             temperature: float | None = None,
     ) -> str:
+        class IntentClassification(BaseModel):
+            need_retrieval: Literal["yes", "no"] = Field(..., description="是否需要进行RAG检索")
+
         """带参数覆盖的 LLM 调用，用于轻量分类场景"""
         llm = self._create_llm(
             streaming=False,
             temperature=temperature,
-        )
+        ).with_structured_output(IntentClassification)
+
         langchain_messages = self._convert_messages(messages)
-        response = await llm.ainvoke(langchain_messages)
-        return str(response.content)
+        response: IntentClassification = await llm.ainvoke(langchain_messages)
+        return response.need_retrieval
 
     @staticmethod
     def _convert_messages(messages: list[dict]) -> list[BaseMessage]:

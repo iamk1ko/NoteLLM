@@ -1,7 +1,7 @@
 [project]
 name = "NoteLLM"
 version = "0.1.0"
-description = "A knowledge graph and vector database management system built with FastAPI and LangChain."
+description = "A knowledge graph and vector database management system built with FastAPI and LangChain/LangGraph."
 authors = [
     { name = "Yushuang Fu", address = "https://github.com/iamk1ko/NoteLLM" }
 ]

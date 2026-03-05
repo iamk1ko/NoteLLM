@@ -932,5 +932,10 @@ aiormq.exceptions.ChannelPreconditionFailed: PRECONDITION_FAILED - inequivalent 
 3. 我希望利用langchain或langgraph来构建整个智能体的搭建流程。且代码符合最佳实践、每个模块功能职责明确，且能够结合项目现有模块或已有功能，不要重复增加重复的功能或模块。
 4. 引入agent模块/功能后，有完整详细的中文的"Agent模块设计指南.md"文档（可以起一个更加符合的名字），方便其他开发人员理解和学习。
 
+[后端聊天业务代码优化]
+聊天功能模块入口: "backend/app/api/v1/endpoints/chat_messages.py"
+聊天功能模块的核心业务代码: "backend/app/services/chat_message_service.py"
 
+我发现service的业务代码中有好多与业务无关的代码，导致整个代码量500多行。
+我希望把部分代码可以重新设计 或抽取到它应该对应的地方。不要让整个业务代码过于冗余、繁琐。
 
